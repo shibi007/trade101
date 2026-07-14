@@ -43,13 +43,14 @@ import tradeRoutes from './routes/trade.js';
 import insightsRoutes from './routes/insights.js';
 import kiteRoutes from './routes/kite.js';
 import authRoutes from './routes/auth.js';
+import adminRoutes from './routes/admin.js';
 import { requireAuth, getSession, parseCookies, SESSION_COOKIE, hasUsers, createUser } from './services/authService.js';
 
 // Bootstrap the first user from env vars — needed on hosts with ephemeral
 // filesystems (e.g. Render) where data/users.json doesn't survive deploys.
 if (!hasUsers() && process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
-  createUser(process.env.ADMIN_USERNAME, process.env.ADMIN_PASSWORD);
-  console.log(`👤 Bootstrapped user "${process.env.ADMIN_USERNAME}" from environment`);
+  createUser(process.env.ADMIN_USERNAME, process.env.ADMIN_PASSWORD, true); // first user is admin
+  console.log(`👤 Bootstrapped admin user "${process.env.ADMIN_USERNAME}" from environment`);
 }
 
 // Public routes: login/logout + Kite OAuth callback (Zerodha redirects here)
@@ -60,6 +61,7 @@ app.use('/api/health', healthRoutes);
 app.use('/api/market', requireAuth, marketRoutes);
 app.use('/api/trade', requireAuth, tradeRoutes);
 app.use('/api/insights', requireAuth, insightsRoutes);
+app.use('/api/admin', requireAuth, adminRoutes);
 // Kite: the OAuth callback must stay public (Zerodha redirects the browser
 // there); every other Kite endpoint needs a session.
 app.use('/api/kite', (req, res, next) => {

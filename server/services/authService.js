@@ -34,11 +34,17 @@ function saveUsers(users) {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 }
 
+function isAdmin(username) {
+  const users = loadUsers();
+  const user = users.find(u => u.username.toLowerCase() === String(username).toLowerCase());
+  return user?.isAdmin === true;
+}
+
 function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString('hex');
 }
 
-export function createUser(username, password) {
+export function createUser(username, password, isAdmin = false) {
   if (!/^[a-zA-Z0-9_.-]{3,32}$/.test(username)) {
     throw new Error('Username must be 3-32 chars: letters, digits, _ . -');
   }
@@ -52,12 +58,21 @@ export function createUser(username, password) {
     username,
     salt,
     hash: hashPassword(password, salt),
+    isAdmin: Boolean(isAdmin),
     createdAt: new Date().toISOString(),
   };
   if (existing >= 0) users[existing] = record; // reset password
   else users.push(record);
   saveUsers(users);
-  return { username, created: existing < 0 };
+  return { username, created: existing < 0, isAdmin };
+}
+
+export function setAdmin(username, isAdmin) {
+  const users = loadUsers();
+  const user = users.find(u => u.username.toLowerCase() === String(username).toLowerCase());
+  if (!user) throw new Error(`User not found: ${username}`);
+  user.isAdmin = Boolean(isAdmin);
+  saveUsers(users);
 }
 
 export function verifyUser(username, password) {
@@ -68,7 +83,7 @@ export function verifyUser(username, password) {
   const candidate = Buffer.from(hashPassword(String(password), salt), 'hex');
   const stored = Buffer.from(user ? user.hash : '0'.repeat(128), 'hex');
   const ok = candidate.length === stored.length && crypto.timingSafeEqual(candidate, stored);
-  return ok && user ? { username: user.username, has2fa: Boolean(user.totpSecret) } : null;
+  return ok && user ? { username: user.username, has2fa: Boolean(user.totpSecret), isAdmin: Boolean(user.isAdmin) } : null;
 }
 
 // ---------- TOTP two-factor auth (RFC 6238, compatible with Google
@@ -122,6 +137,8 @@ export function getTotpSecret(username) {
   const user = loadUsers().find(u => u.username.toLowerCase() === String(username).toLowerCase());
   return user?.totpSecret || null;
 }
+
+export { isAdmin };
 
 export function enable2fa(username) {
   const users = loadUsers();

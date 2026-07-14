@@ -1,10 +1,15 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import {
   createUser, setAdmin, isAdmin, getTotpSecret, enable2fa, disable2fa, verifyTotp,
   parseCookies, getSession, SESSION_COOKIE,
 } from '../services/authService.js';
 
 const router = express.Router();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const USERS_FILE = path.join(__dirname, '..', '..', 'data', 'users.json');
 
 function getUsername(req) {
   const session = getSession(parseCookies(req)[SESSION_COOKIE]);
@@ -36,10 +41,7 @@ router.post('/users', requireAdmin, (req, res) => {
 // List all users (admin only)
 router.get('/users', requireAdmin, (req, res) => {
   try {
-    const users = require('fs').readFileSync(
-      require('path').join(require('path').dirname(require('url').fileURLToPath(import.meta.url)), '..', '..', 'data', 'users.json'),
-      'utf8'
-    );
+    const users = fs.readFileSync(USERS_FILE, 'utf8');
     const userList = JSON.parse(users).map(u => ({
       username: u.username,
       createdAt: u.createdAt,
@@ -60,11 +62,8 @@ router.post('/users/:username/delete', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Cannot delete your own admin account' });
   }
   try {
-    const fs = require('fs');
-    const path = require('path');
-    const usersFile = path.join(path.dirname(require('url').fileURLToPath(import.meta.url)), '..', '..', 'data', 'users.json');
-    const users = JSON.parse(fs.readFileSync(usersFile, 'utf8')).filter(u => u.username !== username);
-    fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
+    const users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')).filter(u => u.username !== username);
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: err.message });

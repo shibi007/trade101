@@ -31,6 +31,10 @@
   <input id="username" autocomplete="username" required autofocus>
   <label for="password">Password</label>
   <input id="password" type="password" autocomplete="current-password" required>
+  <div id="otp-block" style="display:none">
+    <label for="otp">Authenticator code</label>
+    <input id="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code">
+  </div>
   <button type="submit">Sign in</button>
   <div class="error" id="error"></div>
   <p class="note">No account yet? Create one on the server:<br><code>node scripts/create-user.js &lt;username&gt;</code></p>
@@ -40,17 +44,24 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const err = document.getElementById('error');
   err.textContent = '';
+  const body = {
+    username: document.getElementById('username').value.trim(),
+    password: document.getElementById('password').value,
+  };
+  const otp = document.getElementById('otp').value.trim();
+  if (otp) body.otp = otp;
   const res = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      username: document.getElementById('username').value.trim(),
-      password: document.getElementById('password').value,
-    }),
+    body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (res.ok) location.href = '/';
-  else err.textContent = data.error || 'Login failed';
+  if (res.ok) { location.href = '/'; return; }
+  if (data.requires2fa) {
+    document.getElementById('otp-block').style.display = 'block';
+    document.getElementById('otp').focus();
+  }
+  err.textContent = data.error || 'Login failed';
 });
 </script>
 </body>

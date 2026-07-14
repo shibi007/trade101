@@ -68,7 +68,79 @@ export function verifyUser(username, password) {
   const candidate = Buffer.from(hashPassword(String(password), salt), 'hex');
   const stored = Buffer.from(user ? user.hash : '0'.repeat(128), 'hex');
   const ok = candidate.length === stored.length && crypto.timingSafeEqual(candidate, stored);
-  return ok && user ? { username: user.username } : null;
+  return ok && user ? { username: user.username, has2fa: Boolean(user.totpSecret) } : null;
+}
+
+// ---------- TOTP two-factor auth (RFC 6238, compatible with Google
+// Authenticator / Authy / Microsoft Authenticator) ----------
+const B32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Encode(buf) {
+  let bits = 0, val = 0, out = '';
+  for (const b of buf) {
+    val = (val << 8) | b; bits += 8;
+    while (bits >= 5) { out += B32_ALPHABET[(val >>> (bits - 5)) & 31]; bits -= 5; }
+  }
+  if (bits > 0) out += B32_ALPHABET[(val << (5 - bits)) & 31];
+  return out;
+}
+
+function base32Decode(str) {
+  let bits = 0, val = 0;
+  const out = [];
+  for (const c of str.replace(/=+$/, '').toUpperCase()) {
+    const idx = B32_ALPHABET.indexOf(c);
+    if (idx === -1) continue;
+    val = (val << 5) | idx; bits += 5;
+    if (bits >= 8) { out.push((val >>> (bits - 8)) & 255); bits -= 8; }
+  }
+  return Buffer.from(out);
+}
+
+function totpCode(secretB32, counter) {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64BE(BigInt(counter));
+  const h = crypto.createHmac('sha1', base32Decode(secretB32)).update(buf).digest();
+  const o = h[19] & 0xf;
+  const num = (((h[o] & 0x7f) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3]) % 1e6;
+  return String(num).padStart(6, '0');
+}
+
+export function verifyTotp(secretB32, code) {
+  const counter = Math.floor(Date.now() / 1000 / 30);
+  const clean = String(code).replace(/\s/g, '');
+  // Accept ±1 time step (90s tolerance) for clock drift
+  for (let w = -1; w <= 1; w++) {
+    const expected = Buffer.from(totpCode(secretB32, counter + w));
+    const given = Buffer.from(clean.padStart(6, '0').slice(0, 6));
+    if (expected.length === given.length && crypto.timingSafeEqual(expected, given)) return true;
+  }
+  return false;
+}
+
+export function getTotpSecret(username) {
+  const user = loadUsers().find(u => u.username.toLowerCase() === String(username).toLowerCase());
+  return user?.totpSecret || null;
+}
+
+export function enable2fa(username) {
+  const users = loadUsers();
+  const user = users.find(u => u.username.toLowerCase() === String(username).toLowerCase());
+  if (!user) throw new Error(`User not found: ${username}`);
+  user.totpSecret = base32Encode(crypto.randomBytes(20));
+  saveUsers(users);
+  return {
+    secret: user.totpSecret,
+    otpauthUrl: `otpauth://totp/Trade101:${encodeURIComponent(user.username)}?secret=${user.totpSecret}&issuer=Trade101&digits=6&period=30`,
+  };
+}
+
+export function disable2fa(username) {
+  const users = loadUsers();
+  const user = users.find(u => u.username.toLowerCase() === String(username).toLowerCase());
+  if (!user) throw new Error(`User not found: ${username}`);
+  delete user.totpSecret;
+  saveUsers(users);
 }
 
 export function hasUsers() {

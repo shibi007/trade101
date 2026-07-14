@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trade101 — Intraday Insights</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e;
+    --green: #3fb950; --red: #f85149; --amber: #d29922; --blue: #58a6ff;
+    --green-bg: rgba(63,185,80,.12); --red-bg: rgba(248,81,73,.12); --blue-bg: rgba(88,166,255,.12);
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:14px 24px; border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:0; z-index:10; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; }
+  header h1 span { color:var(--blue); }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; border:1px solid var(--border); }
+  .chip .dot { width:8px; height:8px; border-radius:50%; }
+  .spacer { flex:1; }
+  nav { display:flex; gap:4px; padding:0 24px; border-bottom:1px solid var(--border); background:var(--panel); }
+  nav button { background:none; border:none; color:var(--muted); padding:12px 16px; font-size:14px; cursor:pointer; border-bottom:2px solid transparent; }
+  nav button.active { color:var(--text); border-bottom-color:var(--blue); }
+  main { padding:20px 24px; max-width:1200px; margin:0 auto; }
+  .grid { display:grid; gap:14px; }
+  .cols-4 { grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); }
+  .cols-2 { grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; }
+  .card h3 { margin:0 0 10px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .big { font-size:24px; font-weight:600; }
+  .pos { color:var(--green); } .neg { color:var(--red); } .neu { color:var(--amber); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:var(--muted); font-weight:500; padding:6px 8px; border-bottom:1px solid var(--border); }
+  td { padding:7px 8px; border-bottom:1px solid rgba(48,54,61,.5); }
+  tr:last-child td { border-bottom:none; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:5px; font-size:11px; font-weight:600; }
+  .badge.long { background:var(--green-bg); color:var(--green); }
+  .badge.short { background:var(--red-bg); color:var(--red); }
+  .badge.info { background:var(--blue-bg); color:var(--blue); }
+  .pick { border-left:3px solid var(--blue); }
+  .pick.long { border-left-color:var(--green); }
+  .pick.short { border-left-color:var(--red); }
+  .pick-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .pick-head .sym { font-size:17px; font-weight:700; }
+  .pick-head .name { color:var(--muted); font-size:12px; }
+  .score { margin-left:auto; font-size:13px; color:var(--muted); }
+  .score b { color:var(--text); font-size:16px; }
+  .reasons { margin:10px 0 4px; padding-left:18px; color:var(--text); }
+  .reasons li { margin:3px 0; font-size:13px; }
+  .levels { display:flex; gap:18px; flex-wrap:wrap; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); font-size:12px; }
+  .levels div span { color:var(--muted); display:block; font-size:11px; }
+  .disclaimer { margin-top:18px; padding:10px 14px; border:1px solid var(--amber); border-radius:8px; color:var(--amber); font-size:12px; background:rgba(210,153,34,.08); }
+  input { background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:9px 12px; font-size:14px; width:100%; }
+  label { display:block; margin:12px 0 4px; font-size:13px; color:var(--muted); }
+  .btn { background:var(--blue); color:#0d1117; border:none; border-radius:6px; padding:9px 18px; font-size:14px; font-weight:600; cursor:pointer; margin-top:14px; }
+  .btn.secondary { background:var(--panel); color:var(--text); border:1px solid var(--border); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .steps { padding-left:20px; color:var(--muted); font-size:13px; }
+  .steps li { margin:6px 0; }
+  .steps code { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:1px 6px; font-size:12px; color:var(--blue); }
+  .muted { color:var(--muted); }
+  .src-note { font-size:12px; color:var(--muted); margin:0 0 14px; }
+  #refresh { margin-left:8px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Trade<span>101</span> <span class="muted" style="font-size:12px;font-weight:400">Intraday Insights · NSE India</span></h1>
+  <span class="chip" id="market-chip"><span class="dot" style="background:var(--muted)"></span>Checking market…</span>
+  <span class="chip" id="kite-chip"><span class="dot" style="background:var(--muted)"></span>Kite: not connected</span>
+  <div class="spacer"></div>
+  <span class="muted" id="ist-clock"></span>
+  <button class="btn secondary" id="refresh" style="margin-top:0;padding:5px 14px">↻ Refresh</button>
+</header>
+
+<nav>
+  <button data-tab="picks" class="active">📈 Today's Picks</button>
+  <button data-tab="insights">🔍 Market Insights</button>
+  <button data-tab="kite">🔗 Kite Connect</button>
+</nav>
+
+<main>
+  <!-- ============ PICKS TAB ============ -->
+  <section id="tab-picks">
+    <p class="src-note" id="picks-source"></p>
+    <div class="grid" id="picks-list"></div>
+    <div class="disclaimer">⚠️ Algorithmic screening for educational purposes only — not investment advice. Levels are indicator-derived references, not recommendations. Consult a SEBI-registered advisor before trading.</div>
+  </section>
+
+  <!-- ============ INSIGHTS TAB ============ -->
+  <section id="tab-insights" class="hidden">
+    <div class="grid cols-4" id="breadth-cards"></div>
+    <div class="grid cols-2" style="margin-top:14px">
+      <div class="card"><h3>Sector performance</h3><table id="sector-table"></table></div>
+      <div class="card"><h3>Opening-range breakouts</h3><table id="orb-table"></table></div>
+      <div class="card"><h3>Top gainers</h3><table id="gainers-table"></table></div>
+      <div class="card"><h3>Top losers</h3><table id="losers-table"></table></div>
+      <div class="card"><h3>Volume spikes</h3><table id="volume-table"></table></div>
+      <div class="card"><h3>Full universe</h3><div style="max-height:320px;overflow:auto"><table id="universe-table"></table></div></div>
+    </div>
+  </section>
+
+  <!-- ============ KITE TAB ============ -->
+  <section id="tab-kite" class="hidden">
+    <div class="grid cols-2">
+      <div class="card">
+        <h3>Zerodha Kite Connect</h3>
+        <p class="muted" id="kite-status-text">Not configured. Add your Kite Connect app credentials to stream live NSE data into the insights engine.</p>
+        <label for="kite-key">API Key</label>
+        <input id="kite-key" placeholder="Your Kite Connect API key" autocomplete="off">
+        <label for="kite-secret">API Secret</label>
+        <input id="kite-secret" type="password" placeholder="Your Kite Connect API secret" autocomplete="off">
+        <p class="muted" style="font-size:12px">Credentials are held in this local server's memory only — never persisted or sent anywhere except api.kite.trade.</p>
+        <button class="btn" id="kite-save">Save & get login link</button>
+        <button class="btn" id="kite-login" disabled>Login with Kite →</button>
+        <button class="btn secondary" id="kite-disconnect" style="display:none">Disconnect</button>
+      </div>
+      <div class="card">
+        <h3>Setup guide</h3>
+        <ol class="steps">
+          <li>Create a Kite Connect app at <code>developers.kite.trade</code> (₹2000/month, Zerodha account required).</li>
+          <li>Set the app's <b>Redirect URL</b> to <code id="redirect-url"></code></li>
+          <li>Paste the API key & secret here, click <b>Save</b>.</li>
+          <li>Click <b>Login with Kite</b> — sign in with your Zerodha credentials in the popup (they go directly to Zerodha, never to this app).</li>
+          <li>Once connected, the Picks & Insights tabs automatically switch from simulated to <b>live NSE quotes</b>.</li>
+        </ol>
+        <h3 style="margin-top:18px">Live quote test</h3>
+        <label for="quote-syms">Symbols (comma-separated)</label>
+        <input id="quote-syms" value="INFY,TCS,RELIANCE">
+        <button class="btn secondary" id="quote-btn">Fetch live quotes</button>
+        <table id="quote-table" style="margin-top:10px"></table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmt = n => n == null ? '—' : Number(n).toLocaleString('en-IN', {maximumFractionDigits:2});
+const pct = n => (n > 0 ? '+' : '') + fmt(n) + '%';
+const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'neu';
+
+// ---------- tabs ----------
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  document.querySelectorAll('main > section').forEach(s => s.classList.add('hidden'));
+  $('#tab-' + b.dataset.tab).classList.remove('hidden');
+});
+
+// ---------- header: clock + market status ----------
+function tick() {
+  $('#ist-clock').textContent = new Date().toLocaleTimeString('en-IN', {timeZone:'Asia/Kolkata', hour12:true}) + ' IST';
+}
+setInterval(tick, 1000); tick();
+
+async function loadMarketStatus() {
+  try {
+    const r = await (await fetch('/api/health/market-status')).json();
+    const open = r.marketOpen;
+    $('#market-chip').innerHTML = `<span class="dot" style="background:var(--${open?'green':'red'})"></span>Market ${open?'OPEN':'CLOSED'} · 9:15–15:30`;
+  } catch { /* leave as-is */ }
+}
+
+// ---------- insights ----------
+let latest = null;
+async function loadInsights() {
+  const data = await (await fetch('/api/insights')).json();
+  latest = data;
+  renderPicks(data);
+  renderInsights(data);
+}
+
+function renderPicks(d) {
+  $('#picks-source').innerHTML = d.dataSource === 'KITE_LIVE'
+    ? '🟢 Live NSE data via Kite Connect · generated ' + new Date(d.generatedAt).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata'}) + ' IST'
+    : '🟡 Simulated data (connect Kite for live quotes) · generated ' + new Date(d.generatedAt).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata'}) + ' IST';
+
+  const list = $('#picks-list');
+  if (!d.picks.length) {
+    list.innerHTML = '<div class="card muted">No setups scoring ≥40 right now. Scanners on the Insights tab show what\'s moving.</div>';
+    return;
+  }
+  list.innerHTML = d.picks.map(p => `
+    <div class="card pick ${p.direction.toLowerCase()}">
+      <div class="pick-head">
+        <span class="sym">${p.symbol}</span>
+        <span class="badge ${p.direction.toLowerCase()}">${p.direction}</span>
+        <span class="badge info">${p.sector}</span>
+        <span class="name">${p.name}</span>
+        <span class="score">setup score <b>${p.score}</b>/100</span>
+      </div>
+      <div style="margin-top:6px">₹${fmt(p.ltp)} <span class="${cls(p.changePct)}">${pct(p.changePct)}</span></div>
+      <ul class="reasons">${p.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
+      <div class="levels">
+        <div><span>Ref entry</span>₹${fmt(p.levels.referenceEntry)}</div>
+        <div><span>Indicator SL (1.5×ATR)</span>₹${fmt(p.levels.stopLoss)}</div>
+        <div><span>2R target</span>₹${fmt(p.levels.target)}</div>
+        <div><span>VWAP</span>₹${fmt(p.levels.vwap)}</div>
+        <div><span>Pivot</span>₹${fmt(p.levels.pivot)}</div>
+        <div><span>S1 / R1</span>₹${fmt(p.levels.support1)} / ₹${fmt(p.levels.resistance1)}</div>
+      </div>
+    </div>`).join('');
+}
+
+function renderInsights(d) {
+  const b = d.breadth;
+  const sentColor = b.sentiment === 'BULLISH' ? 'pos' : b.sentiment === 'BEARISH' ? 'neg' : 'neu';
+  $('#breadth-cards').innerHTML = `
+    <div class="card"><h3>Sentiment</h3><div class="big ${sentColor}">${b.sentiment}</div><div class="muted">avg change ${pct(b.avgChangePct)}</div></div>
+    <div class="card"><h3>Advances</h3><div class="big pos">${b.advances}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
+    <div class="card"><h3>Declines</h3><div class="big neg">${b.declines}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
+    <div class="card"><h3>Data source</h3><div class="big" style="font-size:18px">${d.dataSource === 'KITE_LIVE' ? '🟢 Kite live' : '🟡 Simulated'}</div><div class="muted">refreshes on demand</div></div>`;
+
+  $('#sector-table').innerHTML = '<tr><th>Sector</th><th>Avg chg</th><th>Stocks</th></tr>' +
+    d.sectors.map(s => `<tr><td>${s.sector}</td><td class="${cls(s.avgChangePct)}">${pct(s.avgChangePct)}</td><td class="muted">${s.count}</td></tr>`).join('');
+
+  const row3 = (s, valHtml) => `<tr><td><b>${s.symbol}</b></td><td>₹${fmt(s.ltp)}</td>${valHtml}</tr>`;
+  $('#gainers-table').innerHTML = '<tr><th>Symbol</th><th>LTP</th><th>Change</th></tr>' +
+    d.scanners.gainers.map(s => row3(s, `<td class="pos">${pct(s.changePct)}</td>`)).join('');
+  $('#losers-table').innerHTML = '<tr><th>Symbol</th><th>LTP</th><th>Change</th></tr>' +
+    d.scanners.losers.map(s => row3(s, `<td class="neg">${pct(s.changePct)}</td>`)).join('');
+  $('#volume-table').innerHTML = '<tr><th>Symbol</th><th>LTP</th><th>Rel. volume</th></tr>' +
+    (d.scanners.volumeSpikes.map(s => row3(s, `<td>${fmt(s.relVolume)}×</td>`)).join('') || '<tr><td class="muted" colspan="3">No unusual volume</td></tr>');
+  $('#orb-table').innerHTML = '<tr><th>Symbol</th><th>LTP</th><th>Breakout</th></tr>' +
+    (d.scanners.orbBreakouts.map(s => row3(s, `<td><span class="badge ${s.orbStatus==='BREAKOUT_UP'?'long':'short'}">${s.orbStatus==='BREAKOUT_UP'?'▲ Range high':'▼ Range low'}</span></td>`)).join('') || '<tr><td class="muted" colspan="3">None yet</td></tr>');
+
+  $('#universe-table').innerHTML = '<tr><th>Symbol</th><th>LTP</th><th>Chg</th><th>Gap</th><th>VWAP</th><th>Score</th></tr>' +
+    d.universe.map(s => `<tr><td><b>${s.symbol}</b> <span class="muted" style="font-size:11px">${s.sector}</span></td>
+      <td>₹${fmt(s.ltp)}</td><td class="${cls(s.changePct)}">${pct(s.changePct)}</td>
+      <td class="${cls(s.gapPct)}">${pct(s.gapPct)}</td>
+      <td>${s.aboveVwap ? '<span class="pos">above</span>' : '<span class="neg">below</span>'}</td>
+      <td>${s.score} <span class="badge ${s.direction.toLowerCase()}" style="font-size:10px">${s.direction}</span></td></tr>`).join('');
+}
+
+// ---------- Kite Connect ----------
+$('#redirect-url').textContent = location.origin + '/api/kite/callback';
+
+async function loadKiteStatus() {
+  const st = await (await fetch('/api/kite/status')).json();
+  const chip = $('#kite-chip');
+  if (st.connected) {
+    chip.innerHTML = `<span class="dot" style="background:var(--green)"></span>Kite: ${st.userName || st.userId}`;
+    $('#kite-status-text').innerHTML = `✅ Connected as <b>${st.userName || st.userId}</b> since ${new Date(st.connectedAt).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata'})} IST. Live NSE quotes are feeding the insights engine.`;
+    $('#kite-disconnect').style.display = 'inline-block';
+    $('#kite-login').disabled = true;
+  } else {
+    chip.innerHTML = `<span class="dot" style="background:var(--${st.configured ? 'amber' : 'muted'})"></span>Kite: ${st.configured ? 'configured, not logged in' : 'not connected'}`;
+    $('#kite-status-text').textContent = st.configured
+      ? `Key ${st.apiKeyMasked} saved. Click "Login with Kite" to start a session.` + (st.lastError ? ` Last error: ${st.lastError}` : '')
+      : 'Not configured. Add your Kite Connect app credentials to stream live NSE data into the insights engine.';
+    $('#kite-disconnect').style.display = 'none';
+    $('#kite-login').disabled = !st.configured;
+  }
+}
+
+$('#kite-save').onclick = async () => {
+  const apiKey = $('#kite-key').value.trim(), apiSecret = $('#kite-secret').value.trim();
+  if (!apiKey || !apiSecret) return alert('Enter both API key and secret');
+  const r = await fetch('/api/kite/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({apiKey, apiSecret}) });
+  if (r.ok) { $('#kite-secret').value = ''; await loadKiteStatus(); }
+  else alert((await r.json()).error || 'Failed to save');
+};
+
+$('#kite-login').onclick = async () => {
+  const r = await (await fetch('/api/kite/login-url')).json();
+  if (r.loginUrl) window.open(r.loginUrl, 'kite-login', 'width=480,height=640');
+};
+
+window.addEventListener('message', async (e) => {
+  if (e.data && e.data.type === 'kite-auth') {
+    await loadKiteStatus();
+    if (e.data.ok) await loadInsights();   // switch to live data immediately
+  }
+});
+
+$('#kite-disconnect').onclick = async () => {
+  await fetch('/api/kite/disconnect', { method:'POST' });
+  await loadKiteStatus(); await loadInsights();
+};
+
+$('#quote-btn').onclick = async () => {
+  const syms = $('#quote-syms').value;
+  const r = await fetch('/api/kite/quotes?symbols=' + encodeURIComponent(syms));
+  const data = await r.json();
+  if (!r.ok) { $('#quote-table').innerHTML = `<tr><td class="neg">${data.error}</td></tr>`; return; }
+  $('#quote-table').innerHTML = '<tr><th>Instrument</th><th>LTP</th><th>Open</th><th>High</th><th>Low</th><th>Volume</th></tr>' +
+    Object.entries(data).map(([k, q]) => `<tr><td><b>${k}</b></td><td>₹${fmt(q.last_price)}</td>
+      <td>₹${fmt(q.ohlc?.open)}</td><td>₹${fmt(q.ohlc?.high)}</td><td>₹${fmt(q.ohlc?.low)}</td><td>${fmt(q.volume)}</td></tr>`).join('');
+};
+
+// ---------- boot ----------
+$('#refresh').onclick = () => { loadInsights(); loadMarketStatus(); loadKiteStatus(); };
+loadMarketStatus(); loadKiteStatus(); loadInsights();
+setInterval(loadInsights, 60_000);       // refresh picks every minute
+setInterval(loadMarketStatus, 60_000);
+</script>
+</body>
+</html>

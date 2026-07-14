@@ -1,7 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 
@@ -34,11 +34,18 @@ app.use((req, res, next) => {
 import healthRoutes from './routes/health.js';
 import marketRoutes from './routes/market.js';
 import tradeRoutes from './routes/trade.js';
+import insightsRoutes from './routes/insights.js';
+import kiteRoutes from './routes/kite.js';
 
 // Use routes
 app.use('/api/health', healthRoutes);
 app.use('/api/market', marketRoutes);
 app.use('/api/trade', tradeRoutes);
+app.use('/api/insights', insightsRoutes);
+app.use('/api/kite', kiteRoutes);
+
+// Dashboard UI
+app.use(express.static(join(__dirname, '..', 'public')));
 
 // WebSocket connection handler
 wss.on('connection', (ws) => {

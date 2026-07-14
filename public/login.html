@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trade101 — Sign in</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --blue:#58a6ff; --red:#f85149; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+         display:flex; align-items:center; justify-content:center; min-height:100vh; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:36px; width:360px; }
+  h1 { font-size:20px; margin:0 0 4px; } h1 span { color:var(--blue); }
+  p.sub { color:var(--muted); margin:0 0 22px; font-size:13px; }
+  label { display:block; margin:14px 0 5px; font-size:13px; color:var(--muted); }
+  input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px;
+          color:var(--text); padding:10px 12px; font-size:14px; }
+  input:focus { outline:none; border-color:var(--blue); }
+  button { width:100%; margin-top:20px; background:var(--blue); color:#0d1117; border:none;
+           border-radius:6px; padding:11px; font-size:14px; font-weight:600; cursor:pointer; }
+  .error { color:var(--red); font-size:13px; margin-top:12px; min-height:18px; }
+  .note { color:var(--muted); font-size:12px; margin-top:16px; }
+  .note code { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
+</style>
+</head>
+<body>
+<form class="card" id="form">
+  <h1>Trade<span>101</span></h1>
+  <p class="sub">Intraday Insights · NSE India</p>
+  <label for="username">Username</label>
+  <input id="username" autocomplete="username" required autofocus>
+  <label for="password">Password</label>
+  <input id="password" type="password" autocomplete="current-password" required>
+  <button type="submit">Sign in</button>
+  <div class="error" id="error"></div>
+  <p class="note">No account yet? Create one on the server:<br><code>node scripts/create-user.js &lt;username&gt;</code></p>
+</form>
+<script>
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = document.getElementById('error');
+  err.textContent = '';
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: document.getElementById('username').value.trim(),
+      password: document.getElementById('password').value,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) location.href = '/';
+  else err.textContent = data.error || 'Login failed';
+});
+</script>
+</body>
+</html>

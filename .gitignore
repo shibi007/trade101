@@ -52,3 +52,6 @@ coverage/
 *.db
 *.sqlite
 *.sqlite3
+
+# Local user credentials (scrypt hashes) — never commit
+data/

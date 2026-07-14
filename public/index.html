@@ -72,7 +72,9 @@
   <span class="chip" id="kite-chip"><span class="dot" style="background:var(--muted)"></span>Kite: not connected</span>
   <div class="spacer"></div>
   <span class="muted" id="ist-clock"></span>
+  <span class="chip" id="user-chip" style="display:none"><span class="dot" style="background:var(--blue)"></span><span id="user-name"></span></span>
   <button class="btn secondary" id="refresh" style="margin-top:0;padding:5px 14px">↻ Refresh</button>
+  <button class="btn secondary" id="logout" style="margin-top:0;padding:5px 14px">Sign out</button>
 </header>
 
 <nav>
@@ -164,10 +166,26 @@ async function loadMarketStatus() {
   } catch { /* leave as-is */ }
 }
 
+// ---------- auth ----------
+async function loadUser() {
+  const r = await fetch('/api/auth/me');
+  if (!r.ok) { location.href = '/login.html'; return false; }
+  const u = await r.json();
+  $('#user-name').textContent = u.username;
+  $('#user-chip').style.display = 'inline-flex';
+  return true;
+}
+$('#logout').onclick = async () => {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  location.href = '/login.html';
+};
+
 // ---------- insights ----------
 let latest = null;
 async function loadInsights() {
-  const data = await (await fetch('/api/insights')).json();
+  const r = await fetch('/api/insights');
+  if (r.status === 401) { location.href = '/login.html'; return; }
+  const data = await r.json();
   latest = data;
   renderPicks(data);
   renderInsights(data);
@@ -293,7 +311,7 @@ $('#quote-btn').onclick = async () => {
 
 // ---------- boot ----------
 $('#refresh').onclick = () => { loadInsights(); loadMarketStatus(); loadKiteStatus(); };
-loadMarketStatus(); loadKiteStatus(); loadInsights();
+loadUser().then(ok => { if (ok) { loadMarketStatus(); loadKiteStatus(); loadInsights(); } });
 setInterval(loadInsights, 60_000);       // refresh picks every minute
 setInterval(loadMarketStatus, 60_000);
 </script>

@@ -165,7 +165,11 @@ export function changePassword(username, currentPassword, newPassword) {
 // ---------- sessions ----------
 export function createSession(username) {
   const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, { username, expires: Date.now() + SESSION_TTL_MS });
+  sessions.set(token, {
+    username,
+    expires: Date.now() + SESSION_TTL_MS,
+    kite: { apiKey: null, apiSecret: null, accessToken: null, userId: null, userName: null, connectedAt: null, lastError: null },
+  });
   return token;
 }
 

@@ -128,7 +128,7 @@
   </section>
 </main>
 
-<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/vendor/lightweight-charts.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const getTabs = () => document.querySelectorAll('nav button');
@@ -283,9 +283,15 @@ const candleSeries = chart.addCandlestickSeries({ upColor: '#3fb950', downColor:
 
 $('#stock-select').onchange = e => loadChart(e.target.value);
 async function loadChart(symbol) {
-  const r = await fetch(`/api/market/stock/${symbol}`);
-  if (!r.ok) return;
+  const info = $('#chart-info');
+  const r = await api(`/api/market/stock/${symbol}`);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    info.textContent = `Failed to load ${symbol}: ${err.error || r.status}`;
+    return;
+  }
   const stock = await r.json();
+  info.textContent = 'Candlestick data updates in real-time when connected to Kite. Currently showing simulated data.';
   const intraday = stock.intraday;
   const data = [
     { time: Math.floor(Date.now() / 1000) - 3600, open: intraday.open, high: intraday.high, low: intraday.low, close: intraday.close },

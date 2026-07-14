@@ -8,8 +8,8 @@ const mockStocks = {
   'RELIANCE': { symbol: 'RELIANCE', name: 'Reliance Industries', price: 2850.50, change: 1.25 },
   'TCS': { symbol: 'TCS', name: 'Tata Consultancy Services', price: 3520.75, change: 0.85 },
   'INFY': { symbol: 'INFY', name: 'Infosys', price: 1680.30, change: -0.45 },
-  'HDFC': { symbol: 'HDFC', name: 'Housing Development Finance', price: 2750.25, change: 1.50 },
-  'ICICI': { symbol: 'ICICIBANK', name: 'ICICI Bank', price: 1025.80, change: 0.65 },
+  'HDFCBANK': { symbol: 'HDFCBANK', name: 'HDFC Bank', price: 1620.25, change: 1.50 },
+  'ICICIBANK': { symbol: 'ICICIBANK', name: 'ICICI Bank', price: 1025.80, change: 0.65 },
 };
 
 // Get all available stocks for intraday trading

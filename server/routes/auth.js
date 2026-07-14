@@ -1,8 +1,8 @@
 import express from 'express';
 import {
-  verifyUser, verifyTotp, getTotpSecret,
-  createSession, destroySession, getSession, parseCookies,
-  SESSION_COOKIE, checkRateLimit, clearRateLimit,
+  verifyUser, verifyTotp, getTotpSecret, changePassword,
+  createSession, destroySession, destroyUserSessions, getSession, parseCookies,
+  SESSION_COOKIE, checkRateLimit, clearRateLimit, requireAuth,
 } from '../services/authService.js';
 
 const router = express.Router();
@@ -56,6 +56,22 @@ router.post('/login', async (req, res) => {
 router.post('/logout', (req, res) => {
   destroySession(parseCookies(req)[SESSION_COOKIE]);
   res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; ${cookieFlags()}; Max-Age=0`);
+  res.json({ success: true });
+});
+
+router.post('/change-password', requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current and new password are required' });
+  }
+  try {
+    changePassword(req.user.username, currentPassword, newPassword);
+  } catch (err) {
+    await sleep(FAIL_DELAY_MS);
+    return res.status(400).json({ error: err.message });
+  }
+  // Kill any other sessions for this user; the current one stays valid
+  destroyUserSessions(req.user.username, parseCookies(req)[SESSION_COOKIE]);
   res.json({ success: true });
 });
 

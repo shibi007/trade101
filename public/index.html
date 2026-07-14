@@ -63,6 +63,13 @@
   .src-note { font-size:12px; color:var(--muted); margin:0 0 14px; }
   #refresh { margin-left:8px; }
   .hidden { display:none; }
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:50; }
+  .modal { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:28px; width:360px; }
+  .modal h2 { margin:0 0 6px; font-size:17px; }
+  .modal .error { color:var(--red); font-size:13px; margin-top:10px; min-height:18px; }
+  .modal .ok { color:var(--green); font-size:13px; margin-top:10px; min-height:18px; }
+  .modal .row { display:flex; gap:10px; }
+  .modal .row .btn { flex:1; }
 </style>
 </head>
 <body>
@@ -74,6 +81,7 @@
   <span class="muted" id="ist-clock"></span>
   <span class="chip" id="user-chip" style="display:none"><span class="dot" style="background:var(--blue)"></span><span id="user-name"></span></span>
   <button class="btn secondary" id="refresh" style="margin-top:0;padding:5px 14px">↻ Refresh</button>
+  <button class="btn secondary" id="change-pw" style="margin-top:0;padding:5px 14px">Change password</button>
   <button class="btn secondary" id="logout" style="margin-top:0;padding:5px 14px">Sign out</button>
 </header>
 
@@ -138,6 +146,25 @@
   </section>
 </main>
 
+<div class="modal-overlay hidden" id="pw-modal">
+  <form class="modal" id="pw-form">
+    <h2>Change password</h2>
+    <p class="muted" style="margin:0 0 8px;font-size:13px">Other signed-in sessions will be logged out.</p>
+    <label for="pw-current">Current password</label>
+    <input id="pw-current" type="password" autocomplete="current-password" required>
+    <label for="pw-new">New password <span class="muted">(min 8 characters)</span></label>
+    <input id="pw-new" type="password" autocomplete="new-password" minlength="8" required>
+    <label for="pw-confirm">Confirm new password</label>
+    <input id="pw-confirm" type="password" autocomplete="new-password" minlength="8" required>
+    <div class="error" id="pw-error"></div>
+    <div class="ok" id="pw-ok"></div>
+    <div class="row">
+      <button type="button" class="btn secondary" id="pw-cancel">Cancel</button>
+      <button type="submit" class="btn">Update password</button>
+    </div>
+  </form>
+</div>
+
 <script>
 const $ = s => document.querySelector(s);
 const fmt = n => n == null ? '—' : Number(n).toLocaleString('en-IN', {maximumFractionDigits:2});
@@ -179,6 +206,38 @@ $('#logout').onclick = async () => {
   await fetch('/api/auth/logout', { method: 'POST' });
   location.href = '/login.html';
 };
+
+// ---------- change password ----------
+const pwModal = $('#pw-modal');
+$('#change-pw').onclick = () => {
+  $('#pw-form').reset();
+  $('#pw-error').textContent = ''; $('#pw-ok').textContent = '';
+  pwModal.classList.remove('hidden');
+  $('#pw-current').focus();
+};
+$('#pw-cancel').onclick = () => pwModal.classList.add('hidden');
+pwModal.onclick = (e) => { if (e.target === pwModal) pwModal.classList.add('hidden'); };
+
+$('#pw-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('#pw-error'), ok = $('#pw-ok');
+  err.textContent = ''; ok.textContent = '';
+  const currentPassword = $('#pw-current').value;
+  const newPassword = $('#pw-new').value;
+  if (newPassword !== $('#pw-confirm').value) { err.textContent = 'New passwords do not match'; return; }
+  if (newPassword === currentPassword) { err.textContent = 'New password must be different'; return; }
+  const r = await fetch('/api/auth/change-password', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.ok) {
+    ok.textContent = '✅ Password updated';
+    setTimeout(() => pwModal.classList.add('hidden'), 1200);
+  } else {
+    err.textContent = data.error || 'Failed to update password';
+  }
+});
 
 // ---------- insights ----------
 let latest = null;

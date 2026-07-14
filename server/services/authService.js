@@ -147,6 +147,21 @@ export function hasUsers() {
   return loadUsers().length > 0;
 }
 
+export function changePassword(username, currentPassword, newPassword) {
+  if (!verifyUser(username, currentPassword)) {
+    throw new Error('Current password is incorrect');
+  }
+  if (typeof newPassword !== 'string' || newPassword.length < 8) {
+    throw new Error('New password must be at least 8 characters');
+  }
+  const users = loadUsers();
+  const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+  user.salt = crypto.randomBytes(16).toString('hex');
+  user.hash = hashPassword(newPassword, user.salt);
+  user.passwordChangedAt = new Date().toISOString();
+  saveUsers(users);
+}
+
 // ---------- sessions ----------
 export function createSession(username) {
   const token = crypto.randomBytes(32).toString('hex');
@@ -167,6 +182,13 @@ export function getSession(token) {
 
 export function destroySession(token) {
   sessions.delete(token);
+}
+
+/** Invalidate every session for a user except (optionally) the current one. */
+export function destroyUserSessions(username, exceptToken = null) {
+  for (const [token, s] of sessions) {
+    if (s.username === username && token !== exceptToken) sessions.delete(token);
+  }
 }
 
 // ---------- middleware ----------

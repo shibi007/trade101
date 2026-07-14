@@ -195,7 +195,7 @@ setInterval(tick, 1000); tick();
 
 async function loadMarketStatus() {
   try {
-    const r = await (await fetch('/api/health/market-status')).json();
+    const r = await (await api('/api/health/market-status')).json();
     const open = r.marketOpen;
     $('#market-chip').innerHTML = `<span class="dot" style="background:var(--${open?'green':'red'})"></span>Market ${open?'OPEN':'CLOSED'} · 9:15–15:30`;
   } catch { /* leave as-is */ }
@@ -213,9 +213,12 @@ $('#theme-btn').onclick = () => {
   $('#theme-btn').textContent = next === 'dark' ? '☀️ Light' : '🌙 Dark';
 };
 
+// ---------- api helper ----------
+const api = (url, opts = {}) => fetch(url, { ...opts, credentials: 'include' });
+
 // ---------- auth ----------
 async function loadUser() {
-  const r = await fetch('/api/auth/me');
+  const r = await api('/api/auth/me');
   if (!r.ok) { location.href = '/login.html'; return false; }
   const u = await r.json();
   $('#user-name').textContent = u.username;
@@ -223,7 +226,7 @@ async function loadUser() {
   return true;
 }
 $('#logout').onclick = async () => {
-  await fetch('/api/auth/logout', { method: 'POST' });
+  await api('/api/auth/logout', { method: 'POST' });
   location.href = '/login.html';
 };
 
@@ -248,7 +251,7 @@ $('#pw-form').addEventListener('submit', async (e) => {
   const newPassword = $('#pw-new').value;
   if (newPassword !== $('#pw-confirm').value) { err.textContent = 'New passwords do not match'; return; }
   if (newPassword === currentPassword) { err.textContent = 'New password must be different'; return; }
-  const r = await fetch('/api/auth/change-password', {
+  const r = await api('/api/auth/change-password', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ currentPassword, newPassword }),
   });
@@ -264,7 +267,7 @@ $('#pw-form').addEventListener('submit', async (e) => {
 // ---------- insights ----------
 let latest = null;
 async function loadInsights() {
-  const r = await fetch('/api/insights');
+  const r = await api('/api/insights');
   if (r.status === 401) { location.href = '/login.html'; return; }
   const data = await r.json();
   latest = data;
@@ -338,7 +341,7 @@ function renderInsights(d) {
 $('#redirect-url').textContent = location.origin + '/api/kite/callback';
 
 async function loadKiteStatus() {
-  const st = await (await fetch('/api/kite/status')).json();
+  const st = await (await api('/api/kite/status')).json();
   const chip = $('#kite-chip');
   if (st.connected) {
     chip.innerHTML = `<span class="dot" style="background:var(--green)"></span>Kite: ${st.userName || st.userId}`;
@@ -358,13 +361,13 @@ async function loadKiteStatus() {
 $('#kite-save').onclick = async () => {
   const apiKey = $('#kite-key').value.trim(), apiSecret = $('#kite-secret').value.trim();
   if (!apiKey || !apiSecret) return alert('Enter both API key and secret');
-  const r = await fetch('/api/kite/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({apiKey, apiSecret}) });
+  const r = await api('/api/kite/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({apiKey, apiSecret}) });
   if (r.ok) { $('#kite-secret').value = ''; await loadKiteStatus(); }
   else alert((await r.json()).error || 'Failed to save');
 };
 
 $('#kite-login').onclick = async () => {
-  const r = await (await fetch('/api/kite/login-url')).json();
+  const r = await (await api('/api/kite/login-url')).json();
   if (r.loginUrl) window.open(r.loginUrl, 'kite-login', 'width=480,height=640');
 };
 
@@ -376,13 +379,13 @@ window.addEventListener('message', async (e) => {
 });
 
 $('#kite-disconnect').onclick = async () => {
-  await fetch('/api/kite/disconnect', { method:'POST' });
+  await api('/api/kite/disconnect', { method:'POST' });
   await loadKiteStatus(); await loadInsights();
 };
 
 $('#quote-btn').onclick = async () => {
   const syms = $('#quote-syms').value;
-  const r = await fetch('/api/kite/quotes?symbols=' + encodeURIComponent(syms));
+  const r = await api('/api/kite/quotes?symbols=' + encodeURIComponent(syms));
   const data = await r.json();
   if (!r.ok) { $('#quote-table').innerHTML = `<tr><td class="neg">${data.error}</td></tr>`; return; }
   $('#quote-table').innerHTML = '<tr><th>Instrument</th><th>LTP</th><th>Open</th><th>High</th><th>Low</th><th>Volume</th></tr>' +

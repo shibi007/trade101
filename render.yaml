@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: trade101
+    runtime: node
+    region: singapore # closest Render region to India
+    plan: free        # upgrade to "starter" to avoid cold starts (sessions survive)
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: ADMIN_USERNAME
+        sync: false # set in the Render dashboard
+      - key: ADMIN_PASSWORD
+        sync: false # set in the Render dashboard — used only to bootstrap your login

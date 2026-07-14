@@ -4,6 +4,9 @@
   "description": "Intraday Trading Application for Indian Markets",
   "main": "server/index.js",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "node server/index.js",
     "start": "node server/index.js",

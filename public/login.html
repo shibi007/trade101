@@ -5,25 +5,58 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Trade101 — Sign in</title>
 <style>
-  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --blue:#58a6ff; --red:#f85149; }
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --blue:#58a6ff; --red:#f85149; --green:#3fb950; }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
-         display:flex; align-items:center; justify-content:center; min-height:100vh; }
-  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:36px; width:360px; }
-  h1 { font-size:20px; margin:0 0 4px; } h1 span { color:var(--blue); }
+  body {
+    margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+    display:flex; align-items:center; justify-content:center; min-height:100vh; overflow:hidden; position:relative;
+  }
+  .orb { position:fixed; border-radius:50%; filter:blur(60px); opacity:.18; pointer-events:none; z-index:0; }
+  .orb1 { width:340px; height:340px; background:var(--blue); top:-120px; left:-100px; animation:drift1 16s ease-in-out infinite; }
+  .orb2 { width:280px; height:280px; background:var(--green); bottom:-100px; right:-80px; animation:drift2 20s ease-in-out infinite; }
+  @keyframes drift1 { 0%,100% { transform:translate(0,0) scale(1); } 50% { transform:translate(40px,30px) scale(1.15); } }
+  @keyframes drift2 { 0%,100% { transform:translate(0,0) scale(1); } 50% { transform:translate(-30px,-25px) scale(1.1); } }
+  @keyframes riseIn { from { opacity:0; transform:translateY(18px) scale(.98); } to { opacity:1; transform:translateY(0) scale(1); } }
+  @keyframes shake { 10%,90% { transform:translateX(-1px); } 20%,80% { transform:translateX(2px); } 30%,50%,70% { transform:translateX(-4px); } 40%,60% { transform:translateX(4px); } }
+  @keyframes fadeSlide { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .card {
+    background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:36px; width:360px;
+    position:relative; z-index:1; animation:riseIn .5s cubic-bezier(.22,1,.36,1) both;
+    box-shadow:0 20px 60px rgba(0,0,0,.35);
+  }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h1 span { background:linear-gradient(90deg,var(--blue),var(--green),var(--blue)); background-size:200% auto; -webkit-background-clip:text; background-clip:text; color:transparent; animation:sheen 4s linear infinite; }
+  @keyframes sheen { to { background-position:200% center; } }
   p.sub { color:var(--muted); margin:0 0 22px; font-size:13px; }
   label { display:block; margin:14px 0 5px; font-size:13px; color:var(--muted); }
-  input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px;
-          color:var(--text); padding:10px 12px; font-size:14px; }
-  input:focus { outline:none; border-color:var(--blue); }
-  button { width:100%; margin-top:20px; background:var(--blue); color:#0d1117; border:none;
-           border-radius:6px; padding:11px; font-size:14px; font-weight:600; cursor:pointer; }
+  input {
+    width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); padding:10px 12px; font-size:14px; transition:border-color .18s ease, box-shadow .18s ease, transform .12s ease;
+  }
+  input:focus { outline:none; border-color:var(--blue); box-shadow:0 0 0 3px rgba(88,166,255,.15); }
+  #otp-block { animation:fadeSlide .25s ease both; }
+  button {
+    width:100%; margin-top:20px; background:var(--blue); color:#0d1117; border:none;
+    border-radius:6px; padding:11px; font-size:14px; font-weight:600; cursor:pointer;
+    transition:transform .12s ease, box-shadow .18s ease, filter .18s ease; position:relative; overflow:hidden;
+  }
+  button:hover { filter:brightness(1.08); box-shadow:0 6px 18px rgba(88,166,255,.3); transform:translateY(-1px); }
+  button:active { transform:translateY(0) scale(.97); }
+  button.loading { color:transparent; pointer-events:none; }
+  button.loading::after {
+    content:''; position:absolute; top:50%; left:50%; width:16px; height:16px; margin:-8px 0 0 -8px;
+    border:2px solid rgba(13,17,23,.35); border-top-color:#0d1117; border-radius:50%; animation:spin .6s linear infinite;
+  }
   .error { color:var(--red); font-size:13px; margin-top:12px; min-height:18px; }
+  .error.shake { animation:shake .4s ease; }
   .note { color:var(--muted); font-size:12px; margin-top:16px; }
   .note code { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
 </style>
 </head>
 <body>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
 <form class="card" id="form">
   <h1>Trade<span>101</span></h1>
   <p class="sub">Intraday Insights · NSE India</p>
@@ -42,25 +75,34 @@
 document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const err = document.getElementById('error');
-  err.textContent = '';
+  const btn = e.target.querySelector('button');
+  err.textContent = ''; err.classList.remove('shake');
+  btn.classList.add('loading');
   const body = {
     username: document.getElementById('username').value.trim(),
     password: document.getElementById('password').value,
   };
   const otp = document.getElementById('otp').value.trim();
   if (otp) body.otp = otp;
-  const res = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (res.ok) { location.href = '/'; return; }
+  let res, data;
+  try {
+    res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    data = await res.json().catch(() => ({}));
+  } finally {
+    btn.classList.remove('loading');
+  }
+  if (res.ok) { btn.textContent = '✓ Signed in'; location.href = '/'; return; }
   if (data.requires2fa) {
     document.getElementById('otp-block').style.display = 'block';
     document.getElementById('otp').focus();
   }
   err.textContent = data.error || 'Login failed';
+  void err.offsetWidth;
+  err.classList.add('shake');
 });
 </script>
 </body>

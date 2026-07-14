@@ -12,26 +12,50 @@
   :root[data-theme="light"] {
     --bg:#ffffff;--panel:#f6f8fa;--border:#d0d7de;--text:#24292f;--muted:#57606a;
   }
-  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-  header{display:flex;align-items:center;gap:16px;padding:14px 24px;border-bottom:1px solid var(--border);background:var(--panel);sticky:top;z-index:10;flex-wrap:wrap}
-  h1{font-size:18px;margin:0}h1 span{color:var(--blue)}.spacer{flex:1}
-  nav{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border);background:var(--panel);overflow:auto}
-  nav button{background:0;border:none;color:var(--muted);padding:12px 16px;font-size:14px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
-  nav button.active{color:var(--text);border-bottom-color:var(--blue)}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;transition:background-color .25s ease,color .25s ease}
+  @keyframes riseIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes sheen{to{background-position:200% center}}
+  @keyframes shimmer{0%{background-position:-300px 0}100%{background-position:300px 0}}
+  header{display:flex;align-items:center;gap:16px;padding:14px 24px;border-bottom:1px solid var(--border);background:var(--panel);sticky:top;z-index:10;flex-wrap:wrap;transition:background-color .25s ease,border-color .25s ease}
+  h1{font-size:18px;margin:0}
+  h1 span{background:linear-gradient(90deg,var(--blue),var(--green,#3fb950),var(--blue));background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:sheen 5s linear infinite}
+  .spacer{flex:1}
+  nav{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border);background:var(--panel);overflow:auto;transition:background-color .25s ease,border-color .25s ease}
+  nav button{background:0;border:none;color:var(--muted);padding:12px 16px;font-size:14px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;position:relative;transition:color .2s ease,transform .15s ease}
+  nav button:hover{color:var(--text);transform:translateY(-1px)}
+  nav button::after{content:'';position:absolute;left:16px;right:16px;bottom:-1px;height:2px;background:var(--blue);transform:scaleX(0);transition:transform .25s cubic-bezier(.22,1,.36,1)}
+  nav button.active{color:var(--text)}
+  nav button.active::after{transform:scaleX(1)}
   main{padding:20px 24px;max-width:1400px;margin:0 auto}.hidden{display:none}
-  section{display:none}section.active{display:block}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px}
+  section{display:none}section.active{display:block;animation:riseIn .35s cubic-bezier(.22,1,.36,1) both}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;transition:background-color .25s ease,border-color .25s ease,transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s ease;animation:riseIn .4s cubic-bezier(.22,1,.36,1) both}
+  .card:hover{transform:translateY(-3px);box-shadow:0 10px 26px rgba(0,0,0,.18);border-color:var(--blue)}
+  :root[data-theme="light"] .card:hover{box-shadow:0 10px 26px rgba(0,0,0,.08)}
   .card h3{margin:0 0 10px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
   #chart-container{height:500px;width:100%;margin:10px 0}#settings-content{max-width:600px}
-  input,select,textarea{background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:9px 12px;font-size:14px;width:100%;margin:5px 0}
+  input,select,textarea{background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:9px 12px;font-size:14px;width:100%;margin:5px 0;transition:border-color .18s ease,box-shadow .18s ease}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(88,166,255,.15)}
   label{display:block;margin:12px 0 4px;font-size:13px;color:var(--muted)}
-  .btn{background:var(--blue);color:#0d1117;border:none;border-radius:6px;padding:9px 18px;font-size:14px;font-weight:600;cursor:pointer;margin-top:10px}
+  .btn{background:var(--blue);color:#0d1117;border:none;border-radius:6px;padding:9px 18px;font-size:14px;font-weight:600;cursor:pointer;margin-top:10px;transition:transform .12s cubic-bezier(.22,1,.36,1),box-shadow .18s ease,filter .18s ease;position:relative}
+  .btn:hover:not(:disabled){filter:brightness(1.08);box-shadow:0 6px 16px rgba(88,166,255,.28);transform:translateY(-1px)}
+  .btn:active:not(:disabled){transform:translateY(0) scale(.96)}
   .btn.secondary{background:var(--panel);color:var(--text);border:1px solid var(--border)}
+  .btn.secondary:hover:not(:disabled){box-shadow:0 6px 16px rgba(0,0,0,.18);border-color:var(--blue)}
   .btn:disabled{opacity:.5;cursor:not-allowed}
-  .error{color:var(--red);font-size:13px;margin:10px 0}.ok{color:var(--green);font-size:13px;margin:10px 0}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:12px;border:1px solid var(--border);background:var(--panel)}
-  table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--border)}th{color:var(--muted);font-weight:500}
-  .qr-img{max-width:200px;margin:10px 0}
+  .error{color:var(--red);font-size:13px;margin:10px 0;animation:riseIn .25s ease both}.ok{color:var(--green);font-size:13px;margin:10px 0;animation:riseIn .25s ease both}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:12px;border:1px solid var(--border);background:var(--panel);animation:riseIn .4s ease both}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px;border-bottom:1px solid var(--border);transition:background-color .15s ease}
+  th{color:var(--muted);font-weight:500}
+  tbody tr{transition:background-color .15s ease;animation:riseIn .3s ease both}
+  tbody tr:hover td{background:rgba(88,166,255,.08)}
+  .qr-img{max-width:200px;margin:10px 0;animation:riseIn .4s cubic-bezier(.22,1,.36,1) both}
+  .skel{position:relative;overflow:hidden;background:linear-gradient(90deg,var(--panel) 25%,var(--border) 37%,var(--panel) 63%);background-size:400px 100%;animation:shimmer 1.4s ease infinite;border-radius:6px}
+  @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}}
 </style>
 </head>
 <body>
@@ -72,7 +96,7 @@
   <section id="tab-settings">
     <div class="card">
       <h3>Two-Factor Authentication</h3>
-      <div id="2fa-status"></div>
+      <div id="tfa-status"></div>
     </div>
     <div class="card">
       <h3>Account Settings</h3>
@@ -112,10 +136,15 @@ const getSections = () => document.querySelectorAll('section');
 
 // Tab switching
 getTabs().forEach(btn => btn.onclick = e => {
+  if (e.target.classList.contains('active')) return;
   getTabs().forEach(b => b.classList.remove('active'));
   getSections().forEach(s => s.classList.remove('active'));
   e.target.classList.add('active');
-  $('#tab-' + e.target.dataset.tab).classList.add('active');
+  const target = $('#tab-' + e.target.dataset.tab);
+  target.classList.add('active');
+  target.style.animation = 'none';
+  void target.offsetWidth;
+  target.style.animation = '';
 });
 
 $('#back-btn').onclick = () => location.href = '/';
@@ -132,9 +161,12 @@ $('#theme-btn').onclick = () => {
   $('#theme-btn').textContent = next === 'dark' ? '☀️ Light' : '🌙 Dark';
 };
 
+// Fetch helper with credentials
+const api = (url, opts = {}) => fetch(url, { ...opts, credentials: 'include' });
+
 // Load user info
 (async () => {
-  const r = await fetch('/api/auth/me');
+  const r = await api('/api/auth/me');
   if (!r.ok) { location.href = '/login.html'; return; }
   const u = await r.json();
   $('#user-info').textContent = `👤 ${u.username}`;
@@ -143,10 +175,10 @@ $('#theme-btn').onclick = () => {
   if (u.isAdmin) $('#admin-btn').style.display = '';
 
   // Load 2FA status
-  const tfar = await fetch('/api/admin/2fa/status');
+  const tfar = await api('/api/admin/2fa/status');
   if (tfar.ok) {
     const tfa = await tfar.json();
-    const status = $('#2fa-status');
+    const status = $('#tfa-status');
     if (tfa.enabled) {
       status.innerHTML = `<p style="color:var(--green)">✓ Two-factor authentication is enabled</p>
         <button class="btn secondary" id="disable-2fa-btn">Disable 2FA</button>`;
@@ -164,28 +196,26 @@ $('#theme-btn').onclick = () => {
 
 // 2FA Enable
 async function enableTwoFA() {
-  const r = await fetch('/api/admin/2fa/enable', { method: 'POST' });
+  const r = await api('/api/admin/2fa/enable', { method: 'POST' });
   const data = await r.json();
   if (r.ok) {
-    const el = $('#2fa-status');
+    const el = $('#tfa-status');
     el.innerHTML = `
       <p>Scan with Google Authenticator, Authy, or Microsoft Authenticator:</p>
       <img src="${data.qrCodeUrl}" class="qr-img">
       <p style="font-size:12px;color:var(--muted)">Setup key: <code>${data.secret}</code></p>
-      <label for="2fa-code">Enter the 6-digit code from your authenticator:</label>
-      <input id="2fa-code" maxlength="6" inputmode="numeric">
+      <label for="tfa-code">Enter the 6-digit code from your authenticator:</label>
+      <input id="tfa-code" maxlength="6" inputmode="numeric">
       <button class="btn" id="verify-2fa-btn">Verify & Enable 2FA</button>
-      <div id="2fa-msg"></div>`;
+      <div id="tfa-msg"></div>`;
     $('#verify-2fa-btn').onclick = () => verifyTwoFA();
   }
 }
 
 async function verifyTwoFA() {
-  const code = $('#2fa-code').value;
-  const r = await fetch('/api/auth/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: prompt('Confirm password:'), newPassword: prompt('New password:') }) });
-  // Actually, for 2FA we need a proper endpoint. Let me use the right one.
-  const vr = await fetch('/api/admin/2fa/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
-  const msg = $('#2fa-msg');
+  const code = $('#tfa-code').value;
+  const vr = await api('/api/admin/2fa/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+  const msg = $('#tfa-msg');
   if (vr.ok) {
     msg.innerHTML = '<p style="color:var(--green)">✓ 2FA enabled successfully!</p>';
     setTimeout(() => location.reload(), 1500);
@@ -198,7 +228,7 @@ async function verifyTwoFA() {
 async function disableTwoFA() {
   const pwd = prompt('Enter your password to disable 2FA:');
   if (!pwd) return;
-  const r = await fetch('/api/admin/2fa/disable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: pwd }) });
+  const r = await api('/api/admin/2fa/disable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: pwd }) });
   if (r.ok) {
     alert('2FA disabled');
     location.reload();
@@ -209,11 +239,11 @@ async function disableTwoFA() {
 
 // Admin: Load users
 async function loadUsers() {
-  const r = await fetch('/api/admin/users');
+  const r = await api('/api/admin/users');
   if (!r.ok) return;
   const data = await r.json();
   const tbody = $('#users-tbody');
-  tbody.innerHTML = data.users.map(u => `<tr>
+  tbody.innerHTML = data.users.map((u, i) => `<tr style="animation-delay:${i*50}ms">
     <td><b>${u.username}</b></td>
     <td>${new Date(u.createdAt).toLocaleDateString()}</td>
     <td>${u.isAdmin ? '✓' : '·'}</td>
@@ -224,7 +254,7 @@ async function loadUsers() {
 
 async function deleteUser(username) {
   if (!confirm(`Delete user ${username}?`)) return;
-  const r = await fetch(`/api/admin/users/${username}/delete`, { method: 'POST' });
+  const r = await api(`/api/admin/users/${username}/delete`, { method: 'POST' });
   if (r.ok) loadUsers();
   else alert('Failed to delete user');
 }
@@ -235,7 +265,7 @@ $('#create-user-btn').onclick = async () => {
   const password = $('#new-password').value;
   const msg = $('#create-status');
   if (!username || !password) { msg.innerHTML = '<p class="error">Enter username and password</p>'; return; }
-  const r = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+  const r = await api('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
   const data = await r.json();
   if (r.ok) {
     msg.innerHTML = `<p class="ok">✓ User ${username} created with initial password: ${password}</p>`;

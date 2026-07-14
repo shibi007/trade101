@@ -83,6 +83,7 @@
   <span class="chip" id="user-chip" style="display:none"><span class="dot" style="background:var(--blue)"></span><span id="user-name"></span></span>
   <button class="btn secondary" id="refresh" style="margin-top:0;padding:5px 14px">↻ Refresh</button>
   <button class="btn secondary" id="change-pw" style="margin-top:0;padding:5px 14px">Change password</button>
+  <button class="btn secondary" id="charts-btn" style="margin-top:0;padding:5px 14px">📊 Charts & Settings</button>
   <button class="btn secondary" id="logout" style="margin-top:0;padding:5px 14px">Sign out</button>
 </header>
 
@@ -207,6 +208,8 @@ $('#logout').onclick = async () => {
   await fetch('/api/auth/logout', { method: 'POST' });
   location.href = '/login.html';
 };
+
+$('#charts-btn').onclick = () => location.href = '/charts.html';
 
 // ---------- change password ----------
 const pwModal = $('#pw-modal');

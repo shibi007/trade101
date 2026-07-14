@@ -9,6 +9,9 @@
     --bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#8b949e;
     --green:#3fb950;--red:#f85149;--blue:#58a6ff;--amber:#d29922;
   }
+  :root[data-theme="light"] {
+    --bg:#ffffff;--panel:#f6f8fa;--border:#d0d7de;--text:#24292f;--muted:#57606a;
+  }
   *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
   header{display:flex;align-items:center;gap:16px;padding:14px 24px;border-bottom:1px solid var(--border);background:var(--panel);sticky:top;z-index:10;flex-wrap:wrap}
   h1{font-size:18px;margin:0}h1 span{color:var(--blue)}.spacer{flex:1}
@@ -35,6 +38,7 @@
 <header>
   <h1>Trade<span>101</span></h1><span class="spacer"></span>
   <span id="user-info" style="font-size:12px"></span>
+  <button class="btn secondary" id="theme-btn" style="margin-top:0;padding:5px 14px">🌙 Dark</button>
   <button class="btn secondary" id="back-btn" style="margin-top:0;padding:5px 14px">← Back to Dashboard</button>
 </header>
 
@@ -116,6 +120,18 @@ getTabs().forEach(btn => btn.onclick = e => {
 
 $('#back-btn').onclick = () => location.href = '/';
 
+// Theme toggle
+const savedTheme = localStorage.getItem('theme') || 'dark';
+document.documentElement.setAttribute('data-theme', savedTheme);
+$('#theme-btn').textContent = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+$('#theme-btn').onclick = () => {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  $('#theme-btn').textContent = next === 'dark' ? '☀️ Light' : '🌙 Dark';
+};
+
 // Load user info
 (async () => {
   const r = await fetch('/api/auth/me');
@@ -130,7 +146,7 @@ $('#back-btn').onclick = () => location.href = '/';
   const tfar = await fetch('/api/admin/2fa/status');
   if (tfar.ok) {
     const tfa = await tfar.json();
-    const status = $('# 2fa-status');
+    const status = $('#2fa-status');
     if (tfa.enabled) {
       status.innerHTML = `<p style="color:var(--green)">✓ Two-factor authentication is enabled</p>
         <button class="btn secondary" id="disable-2fa-btn">Disable 2FA</button>`;
@@ -151,7 +167,7 @@ async function enableTwoFA() {
   const r = await fetch('/api/admin/2fa/enable', { method: 'POST' });
   const data = await r.json();
   if (r.ok) {
-    const el = $('# 2fa-status');
+    const el = $('#2fa-status');
     el.innerHTML = `
       <p>Scan with Google Authenticator, Authy, or Microsoft Authenticator:</p>
       <img src="${data.qrCodeUrl}" class="qr-img">

@@ -76,9 +76,14 @@ router.post('/change-password', requireAuth, async (req, res) => {
 });
 
 router.get('/me', (req, res) => {
-  const session = getSession(parseCookies(req)[SESSION_COOKIE]);
+  const token = parseCookies(req)[SESSION_COOKIE];
+  const session = getSession(token);
   if (!session) return res.status(401).json({ error: 'Not logged in' });
-  res.json({ username: session.username });
+  res.json({
+    username: session.username,
+    isAdmin: session.isAdmin || false,
+    has2fa: session.has2fa || false,
+  });
 });
 
 export default router;

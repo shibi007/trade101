@@ -182,8 +182,12 @@ export function changePassword(username, currentPassword, newPassword) {
 // ---------- sessions ----------
 export function createSession(username) {
   const token = crypto.randomBytes(32).toString('hex');
+  const users = loadUsers();
+  const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
   sessions.set(token, {
     username,
+    isAdmin: Boolean(user?.isAdmin),
+    has2fa: Boolean(user?.totpSecret),
     expires: Date.now() + SESSION_TTL_MS,
     kite: { apiKey: null, apiSecret: null, accessToken: null, userId: null, userName: null, connectedAt: null, lastError: null },
   });

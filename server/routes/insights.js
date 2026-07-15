@@ -10,7 +10,7 @@ router.get('/', async (req, res) => {
   try {
     const token = parseCookies(req)[SESSION_COOKIE];
     const liveQuotes = await getUniverseQuotes(token, UNIVERSE.map(s => s.symbol));
-    res.json(generateInsights(liveQuotes));
+    res.json(await generateInsights(token, liveQuotes));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -21,7 +21,7 @@ router.get('/picks', async (req, res) => {
   try {
     const token = parseCookies(req)[SESSION_COOKIE];
     const liveQuotes = await getUniverseQuotes(token, UNIVERSE.map(s => s.symbol));
-    const insights = generateInsights(liveQuotes);
+    const insights = await generateInsights(token, liveQuotes);
     res.json({
       generatedAt: insights.generatedAt,
       dataSource: insights.dataSource,

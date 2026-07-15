@@ -380,8 +380,9 @@ function countUpTo(el, target, dur = 700) {
 }
 
 function renderPicks(d) {
+  const coverage = d.realDataCoverage ? ` · ${d.realDataCoverage} stocks on real Kite historical data` : '';
   $('#picks-source').innerHTML = d.dataSource === 'KITE_LIVE'
-    ? '🟢 Live NSE data via Kite Connect · generated ' + new Date(d.generatedAt).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata'}) + ' IST'
+    ? '🟢 Live NSE data via Kite Connect' + coverage + ' · generated ' + new Date(d.generatedAt).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata'}) + ' IST'
     : '🟡 Simulated data (connect Kite for live quotes) · generated ' + new Date(d.generatedAt).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata'}) + ' IST';
 
   const list = $('#picks-list');
@@ -389,12 +390,21 @@ function renderPicks(d) {
     list.innerHTML = '<div class="card muted">No setups scoring ≥40 right now. Scanners on the Insights tab show what\'s moving.</div>';
     return;
   }
-  list.innerHTML = d.picks.map((p, i) => `
+  list.innerHTML = d.picks.map((p, i) => {
+    const sma = p.indicators || {};
+    const smaLine = (sma.sma20 != null && sma.sma50 != null)
+      ? `<div><span>20 / 50-day SMA</span>₹${fmt(sma.sma20)} / ₹${fmt(sma.sma50)}${sma.sma200 != null ? ` <span class="muted">(200d ₹${fmt(sma.sma200)})</span>` : ''}</div>` : '';
+    const fund = p.fundamentals;
+    const fundLine = fund
+      ? `<div class="muted" style="margin-top:8px;font-size:12px">${fund.pe != null ? `P/E ${fmt(fund.pe)}${fund.sectorPe != null ? ` (sector ${fmt(fund.sectorPe)})` : ''} · ` : ''}${fund.weekLow != null && fund.weekHigh != null ? `52w range ₹${fmt(fund.weekLow)}–₹${fmt(fund.weekHigh)}` : ''}</div>` : '';
+    return `
     <div class="card pick ${p.direction.toLowerCase()}" style="animation-delay:${i*70}ms">
       <div class="pick-head">
         <span class="sym">${p.symbol}</span>
         <span class="badge ${p.direction.toLowerCase()}">${p.direction}</span>
         <span class="badge info">${p.sector}</span>
+        <span class="badge ${p.real ? 'long' : 'info'}" title="${p.real ? 'Real Kite historical candles' : 'Simulated series — Kite historical data unavailable for this stock'}">${p.real ? '● REAL' : '○ SIM'}</span>
+        ${p.eventToday ? `<span class="badge short" title="${p.eventToday}">⚠ EVENT TODAY</span>` : ''}
         <span class="name">${p.name}</span>
         <span class="score">setup score <b data-target="${p.score}">0</b>/100</span>
       </div>
@@ -407,8 +417,11 @@ function renderPicks(d) {
         <div><span>VWAP</span>₹${fmt(p.levels.vwap)}</div>
         <div><span>Pivot</span>₹${fmt(p.levels.pivot)}</div>
         <div><span>S1 / R1</span>₹${fmt(p.levels.support1)} / ₹${fmt(p.levels.resistance1)}</div>
+        ${smaLine}
       </div>
-    </div>`).join('');
+      ${fundLine}
+    </div>`;
+  }).join('');
   list.querySelectorAll('.score b[data-target]').forEach((el, i) => {
     setTimeout(() => countUpTo(el, Number(el.dataset.target)), i * 70 + 120);
   });
@@ -421,7 +434,7 @@ function renderInsights(d) {
     <div class="card"><h3>Sentiment</h3><div class="big ${sentColor}">${b.sentiment}</div><div class="muted">avg change ${pct(b.avgChangePct)}</div></div>
     <div class="card"><h3>Advances</h3><div class="big pos">${b.advances}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
     <div class="card"><h3>Declines</h3><div class="big neg">${b.declines}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
-    <div class="card"><h3>Data source</h3><div class="big" style="font-size:18px">${d.dataSource === 'KITE_LIVE' ? '🟢 Kite live' : '🟡 Simulated'}</div><div class="muted">refreshes on demand</div></div>`;
+    <div class="card"><h3>Data source</h3><div class="big" style="font-size:18px">${d.dataSource === 'KITE_LIVE' ? '🟢 Kite live' : '🟡 Simulated'}</div><div class="muted">${d.realDataCoverage ? d.realDataCoverage + ' real historical' : 'refreshes on demand'}</div></div>`;
 
   $('#sector-table').innerHTML = '<tr><th>Sector</th><th>Avg chg</th><th>Stocks</th></tr>' +
     d.sectors.map(s => `<tr><td>${s.sector}</td><td class="${cls(s.avgChangePct)}">${pct(s.avgChangePct)}</td><td class="muted">${s.count}</td></tr>`).join('');
@@ -437,7 +450,7 @@ function renderInsights(d) {
     (d.scanners.orbBreakouts.map(s => row3(s, `<td><span class="badge ${s.orbStatus==='BREAKOUT_UP'?'long':'short'}">${s.orbStatus==='BREAKOUT_UP'?'▲ Range high':'▼ Range low'}</span></td>`)).join('') || '<tr><td class="muted" colspan="3">None yet</td></tr>');
 
   $('#universe-table').innerHTML = '<tr><th>Symbol</th><th>LTP</th><th>Chg</th><th>Gap</th><th>VWAP</th><th>Score</th></tr>' +
-    d.universe.map(s => `<tr><td><b>${s.symbol}</b> <span class="muted" style="font-size:11px">${s.sector}</span></td>
+    d.universe.map(s => `<tr><td><span title="${s.real ? 'Real Kite historical data' : 'Simulated'}" style="color:var(--${s.real?'green':'muted'})">●</span> <b>${s.symbol}</b> <span class="muted" style="font-size:11px">${s.sector}</span>${s.eventToday ? ` <span class="badge short" style="font-size:10px" title="${s.eventToday}">EVENT</span>` : ''}</td>
       <td>₹${fmt(s.ltp)}</td><td class="${cls(s.changePct)}">${pct(s.changePct)}</td>
       <td class="${cls(s.gapPct)}">${pct(s.gapPct)}</td>
       <td>${s.aboveVwap ? '<span class="pos">above</span>' : '<span class="neg">below</span>'}</td>

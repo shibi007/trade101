@@ -1,14 +1,24 @@
 /**
  * Insights Engine — generates intraday market insights and ranked stock picks.
  *
- * Data source strategy:
- *  - When Kite Connect is linked, real quotes are used (see kiteService).
- *  - Otherwise a deterministic simulator generates realistic intraday OHLCV
- *    series (seeded per symbol + date, so picks stay stable through the day).
+ * Data source strategy (per symbol, best available wins):
+ *  1. Real Kite historical candles (5-min intraday + daily, for moving
+ *     averages) when Kite is connected and the Historical Data add-on is
+ *     enabled. This is the real technical picture.
+ *  2. A deterministic simulator generates realistic intraday OHLCV series
+ *     (seeded per symbol + date) when Kite/historical data is unavailable,
+ *     so the UI still has something to show — but it's clearly flagged
+ *     `real: false` per stock so it's never confused with live data.
  *
- * All output is algorithmic screening for educational purposes — not
+ * Events (board meetings / corporate announcements) and basic fundamentals
+ * (P/E, 52-week range) come from NSE's public, unauthenticated endpoints
+ * (see nseService.js) — best effort, never blocks the main pipeline.
+ *
+ * All output is algorithmic screening for educational purposes only — not
  * investment advice.
  */
+import { getHistoricalCandles } from './kiteService.js';
+import { getTodaysEvents, getFundamentals } from './nseService.js';
 
 // NIFTY-50 style universe with reference prices and sectors
 export const UNIVERSE = [
@@ -65,8 +75,8 @@ export function generateIntradaySeries(symbol, refPrice, date = new Date()) {
   const baseVolume = Math.floor(50000 + rand() * 400000);
 
   // 75 candles = full session 9:15 → 15:30; cut to "now" for live feel
-  const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-  const minsSinceOpen = (nowIST.getHours() * 60 + nowIST.getMinutes()) - (9 * 60 + 15);
+  const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const minsSinceOpen = (nowLocal.getHours() * 60 + nowLocal.getMinutes()) - (9 * 60 + 15);
   const candleCount = Math.max(3, Math.min(75, Math.floor(minsSinceOpen / 5)));
 
   for (let i = 0; i < candleCount; i++) {
@@ -93,6 +103,59 @@ export function generateIntradaySeries(symbol, refPrice, date = new Date()) {
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }
+
+// ---------- IST time helpers ----------
+function nowIST() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+}
+function istAt(base, hours, minutes) {
+  const d = new Date(base);
+  d.setHours(hours, minutes, 0, 0);
+  return d;
+}
+
+function sma(closes, period) {
+  if (closes.length < period) return null;
+  const slice = closes.slice(-period);
+  return round2(slice.reduce((a, b) => a + b, 0) / period);
+}
+
+/**
+ * Real intraday + daily series from Kite historical data. Returns null
+ * (never throws) if the historical add-on isn't enabled, Kite isn't
+ * connected, or the market hasn't opened yet today — callers fall back to
+ * the simulator.
+ */
+async function fetchRealSeries(token, symbol) {
+  if (!token) return null;
+  const now = nowIST();
+  const marketOpen = istAt(now, 9, 15);
+  if (now < marketOpen) return null;
+
+  const dayFrom = new Date(now);
+  dayFrom.setDate(dayFrom.getDate() - 370);
+  const dayTo = istAt(now, 0, 0);
+  dayTo.setDate(dayTo.getDate() - 1); // exclude today's still-forming daily candle
+
+  const [intraday, daily] = await Promise.all([
+    getHistoricalCandles(token, symbol, '5minute', marketOpen, now),
+    getHistoricalCandles(token, symbol, 'day', dayFrom, dayTo),
+  ]);
+  if (!intraday || intraday.length === 0) return null;
+
+  const dailyCloses = (daily || []).map(c => c.close);
+  const prevClose = dailyCloses.length ? dailyCloses[dailyCloses.length - 1] : intraday[0].open;
+
+  return {
+    symbol,
+    prevClose: round2(prevClose),
+    open: round2(intraday[0].open),
+    candles: intraday.map(c => ({ t: c.t, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })),
+    sma20: sma(dailyCloses, 20),
+    sma50: sma(dailyCloses, 50),
+    sma200: sma(dailyCloses, 200),
+  };
+}
 
 // ---------- indicator computations ----------
 export function computeIndicators(series) {
@@ -155,6 +218,9 @@ export function computeIndicators(series) {
     pivot, r1, s1,
     gapPct, changePct, rangePosition,
     volume: cumV,
+    sma20: series.sma20 ?? null,
+    sma50: series.sma50 ?? null,
+    sma200: series.sma200 ?? null,
   };
 }
 
@@ -183,6 +249,15 @@ export function scoreStock(ind) {
 
   if (ind.rangePosition > 80) { long += 10; reasons.push('Price near day high (strength)'); }
   if (ind.rangePosition < 20) { short += 10; reasons.push('Price near day low (weakness)'); }
+
+  if (ind.sma20 != null && ind.sma50 != null) {
+    if (ind.ltp > ind.sma20 && ind.sma20 > ind.sma50) { long += 10; reasons.push('Uptrend: price above rising 20/50-day SMA'); }
+    if (ind.ltp < ind.sma20 && ind.sma20 < ind.sma50) { short += 10; reasons.push('Downtrend: price below falling 20/50-day SMA'); }
+  }
+
+  if (ind.eventToday) {
+    reasons.push(`⚠ ${ind.eventToday}`); // informational only — deliberately not scored, event-day moves are unpredictable
+  }
 
   const direction = long >= short ? 'LONG' : 'SHORT';
   const score = Math.min(100, Math.max(long, short));
@@ -223,18 +298,36 @@ export function buildPick(stock, ind, scored) {
       aboveVwap: ind.aboveVwap,
       rangePosition: ind.rangePosition,
       atr: ind.atr,
+      sma20: ind.sma20,
+      sma50: ind.sma50,
+      sma200: ind.sma200,
     },
+    real: Boolean(ind.real),
+    eventToday: ind.eventToday || null,
+    fundamentals: ind.fundamentals || null,
   };
 }
 
 /**
  * Main entry: full insights snapshot.
- * If liveQuotes (from Kite) is provided, LTP/change are overridden with real data.
+ *
+ * `token` is the caller's session token, used to fetch their Kite historical
+ * data (if connected) and doubles as a cache key for NSE lookups. `liveQuotes`
+ * (from Kite's live quote API) overrides LTP/change with real-time data when
+ * available.
  */
-export function generateInsights(liveQuotes = null) {
-  const snapshots = UNIVERSE.map(stock => {
-    const series = generateIntradaySeries(stock.symbol, stock.ref);
+export async function generateInsights(token, liveQuotes = null) {
+  const snapshots = await Promise.all(UNIVERSE.map(async stock => {
+    const [real, events, fundamentals] = await Promise.all([
+      fetchRealSeries(token, stock.symbol).catch(() => null),
+      getTodaysEvents(stock.symbol).catch(() => []),
+      getFundamentals(stock.symbol).catch(() => null),
+    ]);
+    const series = real || generateIntradaySeries(stock.symbol, stock.ref);
     const ind = computeIndicators(series);
+    ind.real = Boolean(real);
+    ind.eventToday = events && events.length ? events[0].subject : null;
+    ind.fundamentals = fundamentals;
 
     // Override with real Kite quote when available
     const lq = liveQuotes && liveQuotes[`NSE:${stock.symbol}`];
@@ -252,7 +345,7 @@ export function generateInsights(liveQuotes = null) {
 
     const scored = scoreStock(ind);
     return { stock, ind, scored };
-  });
+  }));
 
   // Ranked picks: top 5 by score, minimum score 40
   const picks = snapshots
@@ -282,6 +375,8 @@ export function generateInsights(liveQuotes = null) {
     relVolume: s.ind.relVolume, orbStatus: s.ind.orbStatus,
     aboveVwap: s.ind.aboveVwap, momentum30m: s.ind.momentum30m,
     score: s.scored.score, direction: s.scored.direction,
+    real: s.ind.real, eventToday: s.ind.eventToday,
+    sma20: s.ind.sma20, sma50: s.ind.sma50, sma200: s.ind.sma200,
   }));
 
   const gainers = [...bySymbol].sort((a, b) => b.changePct - a.changePct).slice(0, 5);
@@ -290,10 +385,12 @@ export function generateInsights(liveQuotes = null) {
   const orbBreakouts = bySymbol.filter(s => s.orbStatus !== 'INSIDE');
 
   const sentiment = avgChange > 0.3 ? 'BULLISH' : avgChange < -0.3 ? 'BEARISH' : 'NEUTRAL';
+  const realCount = bySymbol.filter(s => s.real).length;
 
   return {
     generatedAt: new Date().toISOString(),
     dataSource: liveQuotes ? 'KITE_LIVE' : 'SIMULATED',
+    realDataCoverage: `${realCount}/${bySymbol.length}`,
     disclaimer: 'Algorithmic screening for educational purposes only. Not investment advice. Consult a SEBI-registered advisor before trading.',
     breadth: { advances, declines, unchanged: snapshots.length - advances - declines, avgChangePct: avgChange, sentiment },
     sectors,

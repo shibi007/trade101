@@ -198,6 +198,44 @@ export async function getUniverseQuotes(token, symbols) {
   }
 }
 
+/**
+ * Equity account funds. Lets position sizing work off real capital instead of
+ * a hardcoded notional. Returns null when disconnected or on any error —
+ * callers treat funds as simply unknown rather than failing the request.
+ */
+export async function getMargins(token) {
+  const kite = getKiteSession(token);
+  if (!kite?.accessToken) return null;
+  try {
+    const d = await kiteGet(token, '/user/margins/equity');
+    return {
+      net: d?.net ?? null,                                  // tradable balance
+      cash: d?.available?.cash ?? null,
+      liveBalance: d?.available?.live_balance ?? null,
+      collateral: d?.available?.collateral ?? null,
+      utilisedDebits: d?.utilised?.debits ?? null,
+      // Realised/unrealised on open positions — the running day P&L that the
+      // daily-loss limit needs to be checked against.
+      realised: d?.utilised?.m2m_realised ?? null,
+      unrealised: d?.utilised?.m2m_unrealised ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Open positions (day + net). Null when disconnected. */
+export async function getPositions(token) {
+  const kite = getKiteSession(token);
+  if (!kite?.accessToken) return null;
+  try {
+    const d = await kiteGet(token, '/portfolio/positions');
+    return { day: d?.day ?? [], net: d?.net ?? [] };
+  } catch {
+    return null;
+  }
+}
+
 export function isConnected(token) {
   const kite = getKiteSession(token);
   return Boolean(kite?.accessToken);

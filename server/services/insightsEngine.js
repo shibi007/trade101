@@ -17,7 +17,7 @@
  * All output is algorithmic screening for educational purposes only — not
  * investment advice.
  */
-import { getHistoricalCandles } from './kiteService.js';
+import { getHistoricalCandles, getMargins } from './kiteService.js';
 import { getTodaysEvents, getFundamentals } from './nseService.js';
 
 // NIFTY-50 style universe.
@@ -267,12 +267,35 @@ export function scoreStock(ind) {
     if (ind.ltp < ind.sma20 && ind.sma20 < ind.sma50) { short += 10; reasons.push('Downtrend: price below falling 20/50-day SMA'); }
   }
 
+  // ---- live-only microstructure signals (null unless Kite is connected) ----
+
+  // Order book leaning meaningfully one way, confirming the price move.
+  if (ind.orderImbalance != null && Math.abs(ind.orderImbalance) > 0.2) {
+    const buyers = ind.orderImbalance > 0;
+    if (buyers) long += 10; else short += 10;
+    reasons.push(`Order book ${buyers ? 'bid-heavy' : 'offer-heavy'} (${(ind.orderImbalance * 100).toFixed(0)}% imbalance)`);
+  }
+
+  // Liquidity and halt risk are disqualifiers, not directional signals — they
+  // subtract from whichever side the setup is on rather than favouring one.
+  if (ind.spreadPct != null && ind.spreadPct > 0.15) {
+    long -= 15; short -= 15;
+    reasons.push(`⚠ Wide spread (${ind.spreadPct}%) — slippage will eat the edge`);
+  }
+
+  if (ind.circuitHeadroomPct != null && ind.circuitHeadroomPct < 2) {
+    long -= 20; short -= 20;
+    reasons.push(`⚠ Within ${ind.circuitHeadroomPct}% of circuit limit — halt risk`);
+  }
+
   if (ind.eventToday) {
     reasons.push(`⚠ ${ind.eventToday}`); // informational only — deliberately not scored, event-day moves are unpredictable
   }
 
   const direction = long >= short ? 'LONG' : 'SHORT';
-  const score = Math.min(100, Math.max(long, short));
+  // Clamp low as well as high — the liquidity/circuit penalties can drive the
+  // raw total negative, and a negative score would sort oddly downstream.
+  const score = Math.max(0, Math.min(100, Math.max(long, short)));
   return { direction, score, reasons };
 }
 
@@ -331,6 +354,12 @@ export function buildPick(stock, ind, scored) {
       sma20: ind.sma20,
       sma50: ind.sma50,
       sma200: ind.sma200,
+      // Live-only (null on simulated series)
+      bid: ind.bid ?? null,
+      ask: ind.ask ?? null,
+      spreadPct: ind.spreadPct ?? null,
+      orderImbalance: ind.orderImbalance ?? null,
+      circuitHeadroomPct: ind.circuitHeadroomPct ?? null,
     },
     real: Boolean(ind.real),
     eventToday: ind.eventToday || null,
@@ -371,11 +400,50 @@ export async function generateInsights(token, liveQuotes = null) {
       ind.changePct = round2(((ind.ltp - ind.prevClose) / ind.prevClose) * 100);
       ind.gapPct = round2(((ind.open - ind.prevClose) / ind.prevClose) * 100);
       ind.rangePosition = round2(((ind.ltp - ind.dayLow) / Math.max(0.01, ind.dayHigh - ind.dayLow)) * 100);
+
+      // The /quote payload carries far more than price. These fields were
+      // being fetched and discarded on every poll.
+
+      // Exchange-published VWAP beats our candle-derived approximation.
+      if (lq.average_price) ind.vwap = round2(lq.average_price);
+      ind.aboveVwap = ind.ltp > ind.vwap;
+
+      // Top-of-book spread. A wide spread is a hidden cost on every intraday
+      // round trip and is the single best liquidity filter available here.
+      const bid = lq.depth?.buy?.[0]?.price ?? null;
+      const ask = lq.depth?.sell?.[0]?.price ?? null;
+      if (bid && ask && ask > bid) {
+        ind.bid = bid;
+        ind.ask = ask;
+        ind.spreadPct = round2(((ask - bid) / ind.ltp) * 100);
+      }
+
+      // Total pending buy vs sell quantity across the book — a crude but real
+      // read on which side is leaning. Range -1 (all sellers) to +1 (all buyers).
+      const bq = lq.buy_quantity ?? 0;
+      const sq = lq.sell_quantity ?? 0;
+      if (bq + sq > 0) ind.orderImbalance = round2((bq - sq) / (bq + sq));
+
+      // Distance to circuit. A stock approaching its band can halt mid-trade,
+      // stranding a position with no exit.
+      if (lq.upper_circuit_limit && lq.lower_circuit_limit) {
+        ind.upperCircuit = lq.upper_circuit_limit;
+        ind.lowerCircuit = lq.lower_circuit_limit;
+        ind.circuitHeadroomPct = round2(
+          Math.min(lq.upper_circuit_limit - ind.ltp, ind.ltp - lq.lower_circuit_limit) / ind.ltp * 100
+        );
+      }
+
+      ind.lastTradeTime = lq.last_trade_time ?? null;
     }
 
     const scored = scoreStock(ind);
     return { stock, ind, scored };
   }));
+
+  // Real account funds, so the UI can size against actual capital rather than
+  // a notional. Null when disconnected — never blocks the response.
+  const funds = await getMargins(token).catch(() => null);
 
   // Ranked picks: top 5 by score, minimum score 40
   const picks = snapshots
@@ -423,6 +491,7 @@ export async function generateInsights(token, liveQuotes = null) {
     realDataCoverage: `${realCount}/${bySymbol.length}`,
     disclaimer: 'Algorithmic screening for educational purposes only. Not investment advice. Consult a SEBI-registered advisor before trading.',
     breadth: { advances, declines, unchanged: snapshots.length - advances - declines, avgChangePct: avgChange, sentiment },
+    funds,
     sectors,
     picks,
     scanners: { gainers, losers, volumeSpikes, orbBreakouts },

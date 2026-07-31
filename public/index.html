@@ -404,10 +404,31 @@ function renderPicks(d) {
     list.innerHTML = '<div class="card muted">No setups scoring ≥40 right now. Scanners on the Insights tab show what\'s moving.</div>';
     return;
   }
+  // Size against real Kite funds when connected; fall back to a ₹1L notional
+  // and say so, rather than implying the number reflects your account.
+  const capital = d.funds?.net > 0 ? d.funds.net : 100000;
+  const capitalLabel = d.funds?.net > 0
+    ? `your ₹${Math.round(d.funds.net).toLocaleString('en-IN')} balance`
+    : 'a ₹1,00,000 notional account';
+
   list.innerHTML = d.picks.map((p, i) => {
     const sma = p.indicators || {};
     const smaLine = (sma.sma20 != null && sma.sma50 != null)
       ? `<div><span>20 / 50-day SMA</span>₹${fmt(sma.sma20)} / ₹${fmt(sma.sma50)}${sma.sma200 != null ? ` <span class="muted">(200d ₹${fmt(sma.sma200)})</span>` : ''}</div>` : '';
+    // Live-only microstructure — absent on simulated series.
+    const ind = p.indicators || {};
+    const liveBits = [];
+    if (ind.bid != null && ind.ask != null) {
+      liveBits.push(`<div><span>Bid / Ask</span>₹${fmt(ind.bid)} / ₹${fmt(ind.ask)}${ind.spreadPct != null ? ` <span class="${ind.spreadPct > 0.15 ? 'neg' : 'muted'}">(${ind.spreadPct}%)</span>` : ''}</div>`);
+    }
+    if (ind.orderImbalance != null) {
+      const pctImb = Math.round(ind.orderImbalance * 100);
+      liveBits.push(`<div><span>Book imbalance</span><span class="${pctImb > 0 ? 'pos' : pctImb < 0 ? 'neg' : 'neu'}">${pctImb > 0 ? '+' : ''}${pctImb}%</span></div>`);
+    }
+    if (ind.circuitHeadroomPct != null) {
+      liveBits.push(`<div><span>Circuit headroom</span><span class="${ind.circuitHeadroomPct < 2 ? 'neg' : ''}">${ind.circuitHeadroomPct}%</span></div>`);
+    }
+    const liveLine = liveBits.join('');
     const fund = p.fundamentals;
     const fundLine = fund
       ? `<div class="muted" style="margin-top:8px;font-size:12px">${fund.pe != null ? `P/E ${fmt(fund.pe)}${fund.sectorPe != null ? ` (sector ${fmt(fund.sectorPe)})` : ''} · ` : ''}${fund.weekLow != null && fund.weekHigh != null ? `52w range ₹${fmt(fund.weekLow)}–₹${fmt(fund.weekHigh)}` : ''}</div>` : '';
@@ -431,11 +452,12 @@ function renderPicks(d) {
         <div class="t2"><span>Target 2</span><b>₹${fmt(p.levels.target2)}</b><span class="rr" style="display:inline">2R</span>
           ${p.levels.target2Blocked ? `<span class="blocked">⚠ ${p.direction === 'LONG' ? 'R1' : 'S1'} sits before this level</span>` : ''}</div>
       </div>
-      <p class="plan-note">Risk ₹${fmt(p.levels.riskPerShare)}/share · qty for 2% of a ₹1L account ≈ ${Math.floor(2000 / Math.max(0.01, p.levels.riskPerShare))} shares · levels are 1.5×ATR calculations, not advice</p>
+      <p class="plan-note">Risk ₹${fmt(p.levels.riskPerShare)}/share · qty risking 2% of ${capitalLabel} ≈ ${Math.floor((capital * 0.02) / Math.max(0.01, p.levels.riskPerShare))} shares · levels are 1.5×ATR calculations, not advice</p>
       <div class="levels">
         <div><span>VWAP</span>₹${fmt(p.levels.vwap)}</div>
         <div><span>Pivot</span>₹${fmt(p.levels.pivot)}</div>
         <div><span>S1 / R1</span>₹${fmt(p.levels.support1)} / ₹${fmt(p.levels.resistance1)}</div>
+        ${liveLine}
         ${smaLine}
       </div>
       ${fundLine}

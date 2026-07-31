@@ -20,7 +20,13 @@
 import { getHistoricalCandles } from './kiteService.js';
 import { getTodaysEvents, getFundamentals } from './nseService.js';
 
-// NIFTY-50 style universe with reference prices and sectors
+// NIFTY-50 style universe.
+//
+// `ref` is ONLY a seed for the offline simulator — it is never used when Kite
+// is connected, since live quotes overwrite ltp/open/close in generateInsights.
+// Treat these as rough anchors, not prices: they go stale, and a stale ref
+// silently produces plausible-looking simulated levels. Verify against your
+// broker feed before acting on anything computed from a simulated series.
 export const UNIVERSE = [
   { symbol: 'RELIANCE',   name: 'Reliance Industries',  sector: 'Energy',     ref: 2850 },
   { symbol: 'TCS',        name: 'Tata Consultancy',     sector: 'IT',         ref: 3520 },
@@ -38,6 +44,12 @@ export const UNIVERSE = [
   { symbol: 'MARUTI',     name: 'Maruti Suzuki',        sector: 'Auto',       ref: 12400 },
   { symbol: 'SUNPHARMA',  name: 'Sun Pharma',           sector: 'Pharma',     ref: 1520 },
   { symbol: 'WIPRO',      name: 'Wipro',                sector: 'IT',         ref: 520 },
+  // Added Jul 2026 — active names missing from the original list. Refs sourced
+  // from public quotes and cross-checked; unverified names deliberately left
+  // out rather than seeded with a number that might be wrong.
+  { symbol: 'BAJFINANCE', name: 'Bajaj Finance',        sector: 'Financials', ref: 1056 },
+  { symbol: 'M&M',        name: 'Mahindra & Mahindra',  sector: 'Auto',       ref: 3284 },
+  { symbol: 'BEL',        name: 'Bharat Electronics',   sector: 'Defence',    ref: 385 },
 ];
 
 // ---------- deterministic RNG (stable picks per symbol per day) ----------
@@ -268,8 +280,22 @@ export function buildPick(stock, ind, scored) {
   const { direction } = scored;
   const slDistance = round2(ind.atr * 1.5);
   const entry = ind.ltp;
-  const stopLoss = direction === 'LONG' ? round2(entry - slDistance) : round2(entry + slDistance);
-  const target = direction === 'LONG' ? round2(entry + slDistance * 2) : round2(entry - slDistance * 2);
+  const isLong = direction === 'LONG';
+  const stopLoss = isLong ? round2(entry - slDistance) : round2(entry + slDistance);
+
+  // Two targets so the plan supports scaling out: T1 at 1R (booking half here
+  // makes the remainder risk-free), T2 at 2R. `target` is kept as an alias for
+  // T2 so existing callers don't break.
+  const target1 = isLong ? round2(entry + slDistance) : round2(entry - slDistance);
+  const target2 = isLong ? round2(entry + slDistance * 2) : round2(entry - slDistance * 2);
+  const target = target2;
+
+  // Is T2 actually reachable, or is a known level sitting in the way? A 2R
+  // target beyond R1 (long) / S1 (short) is optimistic — flag it rather than
+  // quietly presenting 2.0 as if the path were clear.
+  const barrier = isLong ? ind.r1 : ind.s1;
+  const target2Blocked = barrier != null &&
+    (isLong ? barrier < target2 && barrier > entry : barrier > target2 && barrier < entry);
 
   return {
     symbol: stock.symbol,
@@ -284,6 +310,10 @@ export function buildPick(stock, ind, scored) {
       referenceEntry: entry,
       stopLoss,
       target,
+      target1,
+      target2,
+      target2Blocked,
+      riskPerShare: slDistance,
       riskRewardRatio: 2.0,
       vwap: ind.vwap,
       pivot: ind.pivot,

@@ -13,10 +13,36 @@
  * Docs: https://kite.trade/docs/connect/v3/
  */
 import crypto from 'crypto';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { getSession } from './authService.js';
 
 const KITE_BASE = 'https://api.kite.trade';
 const KITE_VERSION = '3';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const CREDENTIALS_FILE = join(__dirname, '..', '..', 'data', 'kite.json');
+
+/**
+ * Credentials from data/kite.json (gitignored), falling back to env vars.
+ * Read fresh on each session so editing the file doesn't require a restart.
+ * Returns nulls when nothing is configured — the UI flow still works.
+ */
+function loadStoredCredentials() {
+  let apiKey = process.env.KITE_API_KEY || null;
+  let apiSecret = process.env.KITE_API_SECRET || null;
+
+  try {
+    const file = JSON.parse(fs.readFileSync(CREDENTIALS_FILE, 'utf8'));
+    apiKey = file.apiKey?.trim() || apiKey;
+    apiSecret = file.apiSecret?.trim() || apiSecret;
+  } catch {
+    // Missing or malformed file is fine — fall back to env/UI configuration.
+  }
+
+  return { apiKey: apiKey || null, apiSecret: apiSecret || null };
+}
 
 // Native fetch ignores a plain `timeout` option — it must be enforced with
 // AbortController, otherwise a hanging Kite response stalls the caller
@@ -35,7 +61,12 @@ function getKiteSession(token) {
   const session = getSession(token);
   if (!session) return null;
   if (!session.kite) {
-    session.kite = { apiKey: null, apiSecret: null, accessToken: null, userId: null, userName: null, connectedAt: null, lastError: null };
+    const stored = loadStoredCredentials();
+    session.kite = {
+      apiKey: stored.apiKey,
+      apiSecret: stored.apiSecret,
+      accessToken: null, userId: null, userName: null, connectedAt: null, lastError: null,
+    };
   }
   return session.kite;
 }

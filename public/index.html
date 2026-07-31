@@ -96,6 +96,20 @@
   .score b { color:var(--text); font-size:16px; font-variant-numeric:tabular-nums; }
   .reasons { margin:10px 0 4px; padding-left:18px; color:var(--text); }
   .reasons li { margin:3px 0; font-size:13px; }
+  /* Trade plan — the four numbers that actually matter, pulled out of the
+     reference-levels soup and given their own visual weight. */
+  .plan { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; margin-top:12px;
+    background:var(--border); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .plan > div { background:var(--bg); padding:10px 12px; }
+  .plan span { display:block; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:3px; }
+  .plan b { font-size:16px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+  .plan .sl b { color:var(--red); }
+  .plan .t1 b, .plan .t2 b { color:var(--green); }
+  .plan .rr { font-size:10px; font-weight:500; color:var(--muted); margin-left:4px; }
+  .plan .blocked { color:var(--amber); font-size:10px; display:block; margin-top:2px; }
+  .badge.action { font-size:13px; padding:3px 12px; letter-spacing:.06em; }
+  .plan-note { font-size:11px; color:var(--muted); margin-top:8px; }
+  @media (max-width:640px) { .plan { grid-template-columns:repeat(2,1fr); } }
   .levels { display:flex; gap:18px; flex-wrap:wrap; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); font-size:12px; }
   .levels div span { color:var(--muted); display:block; font-size:11px; }
   .disclaimer { margin-top:18px; padding:10px 14px; border:1px solid var(--amber); border-radius:8px; color:var(--amber); font-size:12px; background:rgba(210,153,34,.08); animation:riseIn .5s ease both; }
@@ -401,7 +415,7 @@ function renderPicks(d) {
     <div class="card pick ${p.direction.toLowerCase()}" style="animation-delay:${i*70}ms">
       <div class="pick-head">
         <span class="sym">${p.symbol}</span>
-        <span class="badge ${p.direction.toLowerCase()}">${p.direction}</span>
+        <span class="badge action ${p.direction.toLowerCase()}">${p.direction === 'LONG' ? 'BUY' : 'SELL'}</span>
         <span class="badge info">${p.sector}</span>
         <span class="badge ${p.real ? 'long' : 'info'}" title="${p.real ? 'Real Kite historical candles' : 'Simulated series — Kite historical data unavailable for this stock'}">${p.real ? '● REAL' : '○ SIM'}</span>
         ${p.eventToday ? `<span class="badge short" title="${p.eventToday}">⚠ EVENT TODAY</span>` : ''}
@@ -410,10 +424,15 @@ function renderPicks(d) {
       </div>
       <div style="margin-top:6px">₹${fmt(p.ltp)} <span class="${cls(p.changePct)}">${pct(p.changePct)}</span></div>
       <ul class="reasons">${p.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
+      <div class="plan">
+        <div><span>Entry</span><b>₹${fmt(p.levels.referenceEntry)}</b></div>
+        <div class="sl"><span>Stop loss</span><b>₹${fmt(p.levels.stopLoss)}</b></div>
+        <div class="t1"><span>Target 1</span><b>₹${fmt(p.levels.target1)}</b><span class="rr" style="display:inline">1R</span></div>
+        <div class="t2"><span>Target 2</span><b>₹${fmt(p.levels.target2)}</b><span class="rr" style="display:inline">2R</span>
+          ${p.levels.target2Blocked ? `<span class="blocked">⚠ ${p.direction === 'LONG' ? 'R1' : 'S1'} sits before this level</span>` : ''}</div>
+      </div>
+      <p class="plan-note">Risk ₹${fmt(p.levels.riskPerShare)}/share · qty for 2% of a ₹1L account ≈ ${Math.floor(2000 / Math.max(0.01, p.levels.riskPerShare))} shares · levels are 1.5×ATR calculations, not advice</p>
       <div class="levels">
-        <div><span>Ref entry</span>₹${fmt(p.levels.referenceEntry)}</div>
-        <div><span>Indicator SL (1.5×ATR)</span>₹${fmt(p.levels.stopLoss)}</div>
-        <div><span>2R target</span>₹${fmt(p.levels.target)}</div>
         <div><span>VWAP</span>₹${fmt(p.levels.vwap)}</div>
         <div><span>Pivot</span>₹${fmt(p.levels.pivot)}</div>
         <div><span>S1 / R1</span>₹${fmt(p.levels.support1)} / ₹${fmt(p.levels.resistance1)}</div>

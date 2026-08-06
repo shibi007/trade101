@@ -8,6 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
+    "test": "node --test 'tests/*.test.js'",
     "dev": "node server/index.js",
     "start": "node server/index.js",
     "client": "cd client && npm start",

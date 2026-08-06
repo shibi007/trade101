@@ -177,6 +177,51 @@
   .cog-label { font-size:11px; color:var(--muted); margin:6px 0 0; }
   .chart-foot { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:var(--muted); margin-top:8px; }
   .chart-loading { height:510px; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:13px; }
+
+  /* ---------- explanatory tooltips ---------- */
+  [data-tip] { cursor:help; border-bottom:1px dotted var(--muted); }
+  #tooltip {
+    position:fixed; z-index:100; max-width:340px; pointer-events:none; opacity:0;
+    background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:8px;
+    padding:10px 13px; font-size:12px; line-height:1.55; box-shadow:0 10px 30px rgba(0,0,0,.35);
+    transition:opacity .13s ease; }
+  #tooltip.show { opacity:1; }
+  #tooltip .tip-title { font-weight:600; margin-bottom:3px; }
+  #tooltip .tip-full { color:var(--blue); font-size:11px; margin-bottom:5px; }
+  #tooltip .tip-body { color:var(--muted); }
+  #tooltip table { width:100%; border-collapse:collapse; margin-top:4px; }
+  #tooltip td { border:none; padding:2px 0; font-size:12px; vertical-align:top; }
+  #tooltip td.pts { text-align:right; padding-left:12px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  #tooltip tr.total td { border-top:1px solid var(--border); padding-top:5px; font-weight:600; color:var(--text); }
+  #tooltip tr.muted-row td { color:var(--muted); }
+
+  /* ---------- guide ---------- */
+  .guide-intro { max-width:820px; margin-bottom:18px; }
+  .guide-sec { max-width:820px; }
+  .guide-sec h2 { font-size:16px; margin:26px 0 8px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+  .guide-sec h3 { font-size:14px; margin:16px 0 4px; color:var(--blue); }
+  .guide-sec p { margin:6px 0; color:var(--muted); line-height:1.65; }
+  .guide-sec ul { margin:6px 0; padding-left:20px; color:var(--muted); line-height:1.65; }
+  .guide-sec li { margin:4px 0; }
+  .guide-sec strong { color:var(--text); font-weight:600; }
+  .guide-sec code { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:12px; }
+  .signal-table { width:100%; margin:10px 0; }
+  .signal-table td { padding:7px 8px; border-bottom:1px solid var(--border); vertical-align:top; font-size:13px; }
+  .signal-table td.w { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; font-weight:600; }
+  .signal-table td.w.plus { color:var(--green); } .signal-table td.w.minus { color:var(--red); }
+  .varsity { background:var(--panel); border:1px solid var(--border); border-left:3px solid var(--blue);
+    border-radius:8px; padding:14px 16px; margin:18px 0; max-width:820px; }
+  .varsity h3 { margin:0 0 6px; font-size:14px; }
+  .varsity p { margin:0 0 10px; font-size:12px; color:var(--muted); }
+  .varsity-links { display:flex; flex-wrap:wrap; gap:8px; }
+  .varsity-links a { font-size:12px; padding:5px 11px; border-radius:999px; border:1px solid var(--border);
+    color:var(--blue); text-decoration:none; transition:border-color .15s ease,transform .12s ease; }
+  .varsity-links a:hover { border-color:var(--blue); transform:translateY(-1px); }
+  .glossary-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; margin-top:10px; }
+  .glossary-item { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:11px 13px; }
+  .glossary-item .g-term { font-weight:600; font-size:13px; }
+  .glossary-item .g-full { color:var(--blue); font-size:11px; margin:1px 0 5px; }
+  .glossary-item .g-body { color:var(--muted); font-size:12px; line-height:1.55; }
   .flash { animation:tickFlash .8s ease; }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
@@ -201,6 +246,7 @@
 <nav>
   <button data-tab="picks" class="active">📈 Today's Picks</button>
   <button data-tab="insights">🔍 Market Insights</button>
+  <button data-tab="guide">📚 Guide</button>
   <button data-tab="kite">🔗 Kite Connect</button>
 </nav>
 
@@ -226,6 +272,11 @@
   </section>
 
   <!-- ============ KITE TAB ============ -->
+  <!-- ============ GUIDE TAB ============ -->
+  <section id="tab-guide" class="hidden">
+    <div id="guide-content"></div>
+  </section>
+
   <section id="tab-kite" class="hidden">
     <div class="grid cols-2">
       <div class="card">
@@ -276,12 +327,12 @@
       <button class="chart-close" id="chart-close" title="Close (Esc)">✕</button>
     </div>
     <div class="study-bar" id="study-bar">
-      <span class="study-toggle on" data-study="volume">Volume</span>
-      <span class="study-toggle on" data-study="cog">COG oscillator</span>
-      <span class="study-toggle on" data-study="regression">Regression channel</span>
-      <span class="study-toggle on" data-study="volumeCog">Volume COG</span>
-      <span class="study-toggle on" data-study="poc">POC</span>
-      <span class="study-toggle on" data-study="levels">Trade levels</span>
+      <span class="study-toggle on" data-study="volume" data-tip="volume" tabindex="0">Volume</span>
+      <span class="study-toggle on" data-study="cog" data-tip="cog" tabindex="0">Center of Gravity</span>
+      <span class="study-toggle on" data-study="regression" data-tip="regression" tabindex="0">Regression channel</span>
+      <span class="study-toggle on" data-study="volumeCog" data-tip="volumecog" tabindex="0">Volume Center of Gravity</span>
+      <span class="study-toggle on" data-study="poc" data-tip="poc" tabindex="0">Point of Control</span>
+      <span class="study-toggle on" data-study="levels" data-tip="risk" tabindex="0">Trade levels</span>
     </div>
     <div id="chart-body">
       <div id="price-chart"></div>
@@ -317,6 +368,320 @@ const $ = s => document.querySelector(s);
 const fmt = n => n == null ? '—' : Number(n).toLocaleString('en-IN', {maximumFractionDigits:2});
 const pct = n => (n > 0 ? '+' : '') + fmt(n) + '%';
 const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'neu';
+
+// ---------- glossary + tooltips ----------
+//
+// Every abbreviation on this page is jargon to someone. Each term carries its
+// expansion and a plain-language explanation of what it means *and* why the
+// screener cares — a definition alone ("ATR = Average True Range") does not
+// help anyone decide whether to act on the number next to it.
+const GLOSSARY = {
+  vwap: ['VWAP', 'Volume Weighted Average Price',
+    'The average price weighted by how much traded at each level, reset each session. It is where the average participant is filled, so institutions use it as a benchmark. Price above VWAP means buyers are in control on the day; below means sellers are.'],
+  pivot: ['Pivot', 'Pivot Point',
+    'Yesterday\'s high, low and close averaged into one level. Widely watched, so it often acts as the day\'s dividing line between bullish and bearish.'],
+  support1: ['Support 1', 'First Support Level (S1)',
+    'The first price below the pivot where buying has historically appeared. Falling through it suggests the move down has further to run.'],
+  resistance1: ['Resistance 1', 'First Resistance Level (R1)',
+    'The first price above the pivot where selling has historically appeared. A long target beyond it is optimistic — the level has to break first.'],
+  atr: ['ATR', 'Average True Range',
+    'The average distance price travels in one candle, including gaps. It sizes the stop: a stop closer than ATR sits inside normal noise and gets hit by randomness rather than by being wrong.'],
+  orb: ['Opening range', 'Opening Range Breakout (ORB)',
+    'The high and low of the first 15 minutes. Breaking out of that range on volume is one of the more reliable intraday continuation signals, which is why it is the highest-weighted signal here (25 points).'],
+  sma: ['SMA', 'Simple Moving Average',
+    'The average closing price over the last N days. Price above a rising 20-day and 50-day average is the textbook definition of an uptrend; the 200-day is the long-term trend line.'],
+  ltp: ['LTP', 'Last Traded Price',
+    'The price of the most recent trade — the live quote when Kite is connected.'],
+  relvolume: ['Relative volume', 'Relative Volume (RVOL)',
+    'Today\'s volume compared with this stock\'s own recent average. Above 1.3x means unusual participation, which is what separates a real move from drift on thin trade.'],
+  momentum: ['30-min momentum', null,
+    'Percentage price change over the last 30 minutes. Confirms the move is still going rather than having already finished.'],
+  gap: ['Gap', 'Gap Percentage',
+    'How far today\'s open sat above or below yesterday\'s close. A gap that holds and extends signals conviction; one that fills usually signals the opposite.'],
+  rangeposition: ['Range position', null,
+    'Where the current price sits between the day\'s low (0%) and high (100%). Near the high is strength; near the low is weakness.'],
+  spread: ['Spread', 'Bid-Ask Spread',
+    'The gap between the best buy and best sell price — your instant cost to enter and exit. Above 0.15% it starts eating the edge, so this screener penalises it by 15 points.'],
+  bidask: ['Bid / Ask', 'Best Bid and Best Offer',
+    'The highest price a buyer will pay and the lowest a seller will accept, right now. You buy at the ask and sell at the bid.'],
+  imbalance: ['Book imbalance', 'Order Book Imbalance',
+    'How lopsided the pending buy versus sell orders are. Positive means more resting demand than supply. It is a live-only signal — it needs a connected Kite feed.'],
+  circuit: ['Circuit headroom', 'Distance to Circuit Limit',
+    'How far price is from the exchange-mandated daily limit where trading halts. Close to it, you risk being frozen in a position you cannot exit — a 20-point penalty here.'],
+  pe: ['P/E', 'Price to Earnings Ratio',
+    'Share price divided by earnings per share. Shown for context against the sector average; it is a valuation measure and has little bearing on an intraday move.'],
+  week52: ['52-week range', null,
+    'The lowest and highest price over the past year. Shows where today sits in the longer picture.'],
+  risk: ['R', 'R-multiple (Risk Unit)',
+    'One R is the distance from entry to stop — what you lose if wrong. Target 1 at 1R returns that amount; Target 2 at 2R returns twice it. Thinking in R keeps position sizes comparable across stocks.'],
+  score: ['Setup score', null,
+    'The sum of the technical signals that fired, out of 100. Only setups scoring 40 or more are shown. Hover the number itself for the exact breakdown.'],
+  relstrength: ['Relative strength', null,
+    'This stock\'s change minus the market\'s average change. It separates a strong stock from a strong market: up 0.5% on a day the market is up 2% is actually lagging badly.'],
+  sentiment: ['Sentiment', 'Market Breadth Sentiment',
+    'Derived from how many stocks are advancing versus declining, not from any single index. Broad participation is a more honest read on the day than a handful of heavyweights.'],
+  advances: ['Advances', null, 'How many stocks in the tracked universe are up on the day.'],
+  declines: ['Declines', null, 'How many stocks in the tracked universe are down on the day.'],
+  cog: ['COG', 'Center of Gravity (Ehlers)',
+    'The balance point of recent prices, weighted by how far back each sits. It turns almost without lag, which makes it early but twitchy — the signal line crossover is the usual read.'],
+  regression: ['Regression channel', 'Linear Regression Channel',
+    'A best-fit line through recent closes with bands two standard deviations either side. The line is the trend; the bands show how far price normally strays before returning.'],
+  volumecog: ['Volume COG', 'Volume-Weighted Center of Gravity',
+    'The price level the session\'s traded value balances around — a running VWAP over the candles shown.'],
+  poc: ['POC', 'Point of Control',
+    'The single price with the most traded volume this session. It tends to act as a magnet, since it is where the most positions were opened.'],
+  volume: ['Volume', null, 'Shares traded per candle. Confirms whether a price move had real participation behind it.'],
+  entry: ['Entry', 'Reference Entry Price',
+    'The current price, used as the reference the stop and targets are calculated from. It is not a recommendation to buy here.'],
+  stoploss: ['Stop loss', null,
+    'Where the setup is proven wrong, set 1.5x ATR from entry so it sits outside normal noise. Exiting here caps the loss at 1R.'],
+  target1: ['Target 1', null, 'The 1R level. Booking part of the position here makes the remainder risk-free.'],
+  target2: ['Target 2', null, 'The 2R level — twice the risk taken. Flagged when a support or resistance level sits in the way.'],
+  real: ['Real vs simulated', null,
+    'REAL means genuine Kite historical candles. SIM means a deterministic simulator stood in because Kite is not connected or the Historical Data add-on is not enabled — plausible-looking, but not the market. Never trade from a SIM chart.'],
+  datasource: ['Data source', null,
+    'Whether quotes are coming live from Kite Connect or from the offline simulator.'],
+  atrband: ['Tradeable volatility band', null,
+    'The range of volatility that suits an intraday hold, anchored to the median of today\'s universe rather than a fixed percentage. Too quiet and the stop sits inside the noise; too wild and a 2R target is out of reach within the session.'],
+};
+
+const tooltipEl = document.createElement('div');
+tooltipEl.id = 'tooltip';
+document.body.appendChild(tooltipEl);
+
+function tipHtml(key) {
+  // A `data-tip` may name a glossary term or carry literal HTML, so cards can
+  // explain a computed value the glossary cannot know about.
+  const g = GLOSSARY[key];
+  if (!g) return key;
+  const [title, full, body] = g;
+  return `<div class="tip-title">${title}</div>${full ? `<div class="tip-full">${full}</div>` : ''}<div class="tip-body">${body}</div>`;
+}
+
+function showTip(target) {
+  const key = target.dataset.tip;
+  tooltipEl.innerHTML = target.dataset.tipHtml || tipHtml(key);
+  tooltipEl.classList.add('show');
+  const r = target.getBoundingClientRect();
+  const t = tooltipEl.getBoundingClientRect();
+  // Flip above when there is no room below, and keep it inside the viewport
+  // horizontally — otherwise tooltips on the rightmost card render off-screen.
+  let top = r.bottom + 8;
+  if (top + t.height > window.innerHeight - 8) top = Math.max(8, r.top - t.height - 8);
+  let left = Math.min(Math.max(8, r.left), window.innerWidth - t.width - 8);
+  tooltipEl.style.top = top + 'px';
+  tooltipEl.style.left = left + 'px';
+}
+
+function hideTip() { tooltipEl.classList.remove('show'); }
+
+document.addEventListener('mouseover', e => {
+  const el = e.target.closest('[data-tip]');
+  if (el) showTip(el);
+});
+document.addEventListener('mouseout', e => {
+  if (e.target.closest('[data-tip]')) hideTip();
+});
+// Keyboard parity: tooltips that only appear on hover are invisible to anyone
+// tabbing through the page.
+document.addEventListener('focusin', e => {
+  const el = e.target.closest('[data-tip]');
+  if (el) showTip(el);
+});
+document.addEventListener('focusout', hideTip);
+document.addEventListener('scroll', hideTip, true);
+
+/** Shorthand for a glossary-linked label. */
+const tip = (key, text) => `<span data-tip="${key}" tabindex="0">${text ?? GLOSSARY[key][0]}</span>`;
+
+/**
+ * The score tooltip: which signals fired, what each was worth, and how they
+ * total. Only the traded side's signals contributed, so the rest are filtered
+ * out — showing a LONG card's short-side points would not add up.
+ */
+function scoreTipHtml(p) {
+  const rows = (p.breakdown || []).filter(b => b.side === p.direction || b.side === 'BOTH');
+  const info = (p.breakdown || []).filter(b => b.side === 'INFO');
+  if (!rows.length) return `<div class="tip-title">Setup score ${p.score}/100</div><div class="tip-body">No individual signals recorded.</div>`;
+
+  const line = b => `<tr${b.points < 0 ? ' class="muted-row"' : ''}><td>${b.label}</td><td class="pts">${b.points > 0 ? '+' : ''}${b.points}</td></tr>`;
+  // The clamp only matters when it actually changed the number; showing
+  // "capped at 100" on a score of 70 would be noise.
+  const clamped = p.rawTotal != null && p.rawTotal !== p.score;
+  return `
+    <div class="tip-title">Why this scores ${p.score}/100</div>
+    <div class="tip-full">${p.direction === 'LONG' ? 'BUY' : 'SELL'} side signals that fired</div>
+    <table>
+      ${rows.map(line).join('')}
+      ${clamped ? `<tr class="muted-row"><td>Raw total ${p.rawTotal}, ${p.rawTotal > 100 ? 'capped at 100' : 'floored at 0'}</td><td class="pts"></td></tr>` : ''}
+      <tr class="total"><td>Setup score</td><td class="pts">${p.score}/100</td></tr>
+    </table>
+    ${info.length ? `<div class="tip-body" style="margin-top:6px">${info.map(b => b.label).join('<br>')} — noted, deliberately not scored: event-day moves are unpredictable.</div>` : ''}
+    <div class="tip-body" style="margin-top:6px">Shown only if 40 or more. Ranked among ties by relative strength and volume.</div>`;
+}
+
+// ---------- guide ----------
+//
+// Original explanations, not reproduced from anywhere. Zerodha Varsity is the
+// obvious reference for this material, but it is published "all rights
+// reserved, reproduction not permitted", so this guide explains the concepts in
+// its own words — anchored to what *this* screener actually computes, which a
+// general course could not do — and links out to Varsity for the full course.
+const VARSITY_MODULES = [
+  ['Technical Analysis', 'https://zerodha.com/varsity/module/technical-analysis/',
+    'Candlesticks, support and resistance, moving averages, indicators.'],
+  ['Risk Management & Trading Psychology', 'https://zerodha.com/varsity/module/risk-management/',
+    'Position sizing, stop losses, and the behavioural side of trading.'],
+  ['Trading Systems', 'https://zerodha.com/varsity/module/trading-systems/',
+    'Building and backtesting a rule-based system rather than trading on feel.'],
+  ['Introduction to Stock Markets', 'https://zerodha.com/varsity/module/introduction-to-stock-markets/',
+    'How exchanges, orders, settlement and market participants work.'],
+  ['Markets and Taxation', 'https://zerodha.com/varsity/module/markets-and-taxation/',
+    'How intraday gains are taxed in India, and what counts as speculative income.'],
+  ['Innerworth — Mind over Markets', 'https://zerodha.com/varsity/module/innerworth/',
+    'Discipline, patience and the psychology of losing trades.'],
+];
+
+const GUIDE = [
+  ['How to read a pick', `
+    <p>Each card on <strong>Today's Picks</strong> is one stock that passed the screen, with everything the
+    screener knows about it. Read it in this order:</p>
+    <h3>1. Direction — BUY or SELL</h3>
+    <p>Whether the signals point long or short. The screener totals the evidence for each side separately and
+    shows whichever side wins. A <strong>SELL</strong> pick means the setup favours a short, not that you should
+    sell shares you hold.</p>
+    <h3>2. Setup score, out of 100</h3>
+    <p>The sum of the signals that fired on the winning side. Hover the score for the exact arithmetic — which
+    signals fired and what each contributed. Only setups scoring <strong>40 or more</strong> appear at all.
+    A high score means many independent signals agree, not that the trade will work.</p>
+    <h3>3. REAL or SIM</h3>
+    <p>The single most important badge on the card. <strong>REAL</strong> means genuine Kite historical candles.
+    <strong>SIM</strong> means a simulator produced the numbers because Kite is not connected — the prices are
+    plausible but fictional. Never act on a SIM card.</p>
+    <h3>4. The trade plan</h3>
+    <p>Entry, stop loss and two targets, all derived from Average True Range rather than opinion. The stop sits
+    1.5&times;ATR from entry so it is outside normal noise. Target 1 is the same distance the other way (1R);
+    Target 2 is twice it (2R).</p>
+    <h3>5. Click the card</h3>
+    <p>Opens the candlestick chart with volume and the Center of Gravity studies, and draws the entry, stop and
+    targets as lines so you can see the plan against the price action it came from.</p>`],
+
+  ['What the screener looks for', `
+    <p>Nine signals, each worth a fixed number of points. They were chosen to be reasonably independent — a
+    setup scoring well on several is stronger than one that trips the same idea repeatedly.</p>
+    <table class="signal-table">
+      <tr><td><strong>Opening range breakout</strong><br><span class="muted">Price breaks the first 15 minutes' high or low.</span></td><td class="w plus">+25</td></tr>
+      <tr><td><strong>VWAP with relative strength</strong><br><span class="muted">Above VWAP <em>and</em> outperforming the market, or below and underperforming.</span></td><td class="w plus">+20</td></tr>
+      <tr><td><strong>30-minute momentum</strong><br><span class="muted">The move is still going, not already finished.</span></td><td class="w plus">+15</td></tr>
+      <tr><td><strong>Volume surge</strong><br><span class="muted">Above 1.3&times; the session average, credited to whichever side the stock is moving relative to its peers.</span></td><td class="w plus">+15</td></tr>
+      <tr><td><strong>Gap holding and extending</strong><br><span class="muted">An opening gap that kept going rather than filling.</span></td><td class="w plus">+15</td></tr>
+      <tr><td><strong>Position in the day's range</strong><br><span class="muted">Near the high for longs, near the low for shorts.</span></td><td class="w plus">+10</td></tr>
+      <tr><td><strong>Moving average trend</strong><br><span class="muted">Price above a rising 20 and 50-day average, or below a falling one.</span></td><td class="w plus">+10</td></tr>
+      <tr><td><strong>Order book imbalance</strong> <span class="muted">(live only)</span><br><span class="muted">Resting orders leaning meaningfully one way.</span></td><td class="w plus">+10</td></tr>
+      <tr><td><strong>Wide spread</strong><br><span class="muted">Above 0.15% — your cost to get in and out eats the edge.</span></td><td class="w minus">−15</td></tr>
+      <tr><td><strong>Near circuit limit</strong><br><span class="muted">Risk of being frozen in a position you cannot exit.</span></td><td class="w minus">−20</td></tr>
+      <tr><td><strong>Unsuitable volatility</strong><br><span class="muted">Too quiet to place a sane stop, or too wild to reach a 2R target.</span></td><td class="w minus">up to −15</td></tr>
+    </table>
+    <p>A corporate event on the day is shown but deliberately <strong>not scored</strong>: earnings and
+    announcements move prices for reasons the technicals cannot see, in either direction.</p>`],
+
+  ['Why relative strength matters', `
+    <p>The screener judges each stock against the others available to trade today, not against fixed thresholds.
+    This is the difference between a strong stock and a strong market.</p>
+    <p>If the market is up 2% and a stock is up 0.5%, every naive "is it positive?" test passes — while the stock
+    is in fact <strong>lagging badly</strong>. Money moved into that name less eagerly than into everything else.
+    Conversely, a stock down 0.5% on a day the market is down 2% is showing genuine strength: buyers defended it
+    while everything around it fell.</p>
+    <p>So the card shows both the raw day change and, next to it, <strong>the change relative to the market</strong>.
+    The relative figure is what the scoring uses.</p>`],
+
+  ['Risk, and the R-multiple', `
+    <p><strong>One R is what you lose if you are wrong</strong> — the distance from entry to stop, times your
+    position size. Everything else is measured in multiples of it. This is the single most useful habit in the
+    guide.</p>
+    <p>Thinking in R makes trades comparable. A ₹4 stop on a ₹400 stock and a ₹120 stop on a ₹12,000 stock are
+    the same trade if you size them so both risk the same rupees. Without it, position size drifts with share
+    price and you end up risking wildly different amounts without noticing.</p>
+    <h3>The 2% rule the card uses</h3>
+    <p>The suggested quantity on each card risks <strong>2% of capital</strong> on the stop. On ₹1,00,000 that is
+    ₹2,000 per trade — enough that a good run matters, small enough that a bad run does not end the account.
+    Ten consecutive losses, which will happen eventually, costs about 18% rather than everything.</p>
+    <h3>Why Target 1 is at 1R</h3>
+    <p>Booking part of the position at 1R and moving the stop to entry makes the rest of the trade free: the
+    worst case from that point is breakeven. It caps the upside, and that is the trade-off.</p>
+    <p>Target 2 is flagged when a support or resistance level sits between entry and the target — a 2R target
+    beyond a level everyone is watching is optimistic, because the level has to break first.</p>`],
+
+  ['Reading the chart', `
+    <p>Clicking a pick opens 1-minute candles with four studies. Each answers a different question.</p>
+    <h3>Volume</h3>
+    <p>Did the move have participation behind it? A breakout on ordinary volume is much weaker evidence than the
+    same breakout on twice the usual trade.</p>
+    <h3>Center of Gravity</h3>
+    <p>The balance point of recent prices, weighted by how far back each one sits — it tips as recent prices
+    grow heavy. It turns almost without lag, which makes it early but twitchy; the usual read is the crossover
+    of the oscillator and its signal line, not the raw value. Its numbers are small because it measures
+    <em>relative</em> dispersion; the shape is what matters, and the pane scales itself.</p>
+    <h3>Regression channel</h3>
+    <p>A best-fit line through recent closes with bands two standard deviations either side. The line is the
+    trend; the bands show how far price normally strays before coming back. Price riding the upper band in an
+    uptrend is strength, not an automatic sell.</p>
+    <h3>Volume Center of Gravity and Point of Control</h3>
+    <p>Where the session's traded value actually concentrated. The POC — the single most-traded price — tends to
+    act as a magnet, because it is where the most positions were opened and therefore where the most people have
+    a reason to defend or exit.</p>`],
+
+  ['What this tool will not do for you', `
+    <p>A screener finds candidates. It does not decide, and it is wrong regularly.</p>
+    <ul>
+      <li><strong>A high score is not a probability.</strong> It counts agreeing signals. Several correlated
+      signals can all fire on the same underlying move and still be wrong together.</li>
+      <li><strong>The levels are arithmetic, not advice.</strong> Stop and targets come from ATR. Nothing in the
+      calculation knows about news, liquidity at your size, or what you can afford to lose.</li>
+      <li><strong>Simulated data is fiction.</strong> If the badge says SIM, the numbers are internally
+      consistent and completely made up. Check it before anything else.</li>
+      <li><strong>Costs are not modelled.</strong> Brokerage, STT, exchange fees, GST and slippage all come out
+      of the result and are not in any number shown here.</li>
+      <li><strong>Intraday is taxed as speculative income</strong> in India, at your slab rate. That changes what
+      a winning year is actually worth.</li>
+    </ul>
+    <p>This is algorithmic screening for educational purposes. It is not investment advice, and nobody here is a
+    SEBI-registered advisor.</p>`],
+];
+
+function renderGuide() {
+  const sections = GUIDE.map(([title, body]) =>
+    `<div class="guide-sec"><h2>${title}</h2>${body}</div>`).join('');
+
+  const glossary = Object.entries(GLOSSARY).map(([, [term, full, body]]) =>
+    `<div class="glossary-item"><div class="g-term">${term}</div>${full ? `<div class="g-full">${full}</div>` : ''}<div class="g-body">${body}</div></div>`).join('');
+
+  $('#guide-content').innerHTML = `
+    <div class="card guide-intro">
+      <h3 style="margin-top:0">Reading this app</h3>
+      <p class="muted" style="margin:0">Everything below explains what the numbers on the other tabs mean and how
+      they are calculated. Hover any dotted term anywhere in the app for the short version.</p>
+    </div>
+    ${sections}
+    <div class="varsity">
+      <h3>Going deeper — Zerodha Varsity</h3>
+      <p>Varsity is the best free course on Indian markets there is. This guide explains what <em>this app</em>
+      computes; Varsity teaches the subject properly. Its material is copyrighted and not reproduced here, so
+      these link straight to the source.</p>
+      <div class="varsity-links">
+        ${VARSITY_MODULES.map(([name, url, blurb]) =>
+          `<a href="${url}" target="_blank" rel="noopener noreferrer" data-tip="varsity-${name}"
+             data-tip-html="<div class='tip-title'>${name}</div><div class='tip-body'>${blurb}</div>">${name} ↗</a>`).join('')}
+      </div>
+    </div>
+    <div class="guide-sec">
+      <h2>Glossary</h2>
+      <p>Every term the app uses, in one place.</p>
+      <div class="glossary-grid">${glossary}</div>
+    </div>
+    <div class="disclaimer">⚠️ Educational content about how this screener works. Not investment advice, and not
+    affiliated with or endorsed by Zerodha. Consult a SEBI-registered advisor before trading.</div>`;
+}
 
 // ---------- tabs ----------
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
@@ -492,49 +857,50 @@ function renderPicks(d) {
   list.innerHTML = d.picks.map((p, i) => {
     const sma = p.indicators || {};
     const smaLine = (sma.sma20 != null && sma.sma50 != null)
-      ? `<div><span>20 / 50-day SMA</span>₹${fmt(sma.sma20)} / ₹${fmt(sma.sma50)}${sma.sma200 != null ? ` <span class="muted">(200d ₹${fmt(sma.sma200)})</span>` : ''}</div>` : '';
+      ? `<div>${tip('sma', '20 / 50-day moving average')}₹${fmt(sma.sma20)} / ₹${fmt(sma.sma50)}${sma.sma200 != null ? ` <span class="muted">(200-day ₹${fmt(sma.sma200)})</span>` : ''}</div>` : '';
     // Live-only microstructure — absent on simulated series.
     const ind = p.indicators || {};
     const liveBits = [];
     if (ind.bid != null && ind.ask != null) {
-      liveBits.push(`<div><span>Bid / Ask</span>₹${fmt(ind.bid)} / ₹${fmt(ind.ask)}${ind.spreadPct != null ? ` <span class="${ind.spreadPct > 0.15 ? 'neg' : 'muted'}">(${ind.spreadPct}%)</span>` : ''}</div>`);
+      liveBits.push(`<div>${tip('bidask', 'Bid / Ask')}₹${fmt(ind.bid)} / ₹${fmt(ind.ask)}${ind.spreadPct != null ? ` <span class="${ind.spreadPct > 0.15 ? 'neg' : 'muted'}" data-tip="spread" tabindex="0">(${ind.spreadPct}% spread)</span>` : ''}</div>`);
     }
     if (ind.orderImbalance != null) {
       const pctImb = Math.round(ind.orderImbalance * 100);
-      liveBits.push(`<div><span>Book imbalance</span><span class="${pctImb > 0 ? 'pos' : pctImb < 0 ? 'neg' : 'neu'}">${pctImb > 0 ? '+' : ''}${pctImb}%</span></div>`);
+      liveBits.push(`<div>${tip('imbalance', 'Order book imbalance')}<span class="${pctImb > 0 ? 'pos' : pctImb < 0 ? 'neg' : 'neu'}">${pctImb > 0 ? '+' : ''}${pctImb}%</span></div>`);
     }
     if (ind.circuitHeadroomPct != null) {
-      liveBits.push(`<div><span>Circuit headroom</span><span class="${ind.circuitHeadroomPct < 2 ? 'neg' : ''}">${ind.circuitHeadroomPct}%</span></div>`);
+      liveBits.push(`<div>${tip('circuit', 'Circuit headroom')}<span class="${ind.circuitHeadroomPct < 2 ? 'neg' : ''}">${ind.circuitHeadroomPct}%</span></div>`);
     }
     const liveLine = liveBits.join('');
     const fund = p.fundamentals;
     const fundLine = fund
-      ? `<div class="muted" style="margin-top:8px;font-size:12px">${fund.pe != null ? `P/E ${fmt(fund.pe)}${fund.sectorPe != null ? ` (sector ${fmt(fund.sectorPe)})` : ''} · ` : ''}${fund.weekLow != null && fund.weekHigh != null ? `52w range ₹${fmt(fund.weekLow)}–₹${fmt(fund.weekHigh)}` : ''}</div>` : '';
+      ? `<div class="muted" style="margin-top:8px;font-size:12px">${fund.pe != null ? `${tip('pe', 'Price/Earnings')} ${fmt(fund.pe)}${fund.sectorPe != null ? ` (sector ${fmt(fund.sectorPe)})` : ''} · ` : ''}${fund.weekLow != null && fund.weekHigh != null ? `${tip('week52', '52-week range')} ₹${fmt(fund.weekLow)}–₹${fmt(fund.weekHigh)}` : ''}</div>` : '';
     return `
     <div class="card pick ${p.direction.toLowerCase()}" style="animation-delay:${i*70}ms" data-symbol="${p.symbol}">
       <div class="pick-head">
         <span class="sym">${p.symbol}</span>
         <span class="badge action ${p.direction.toLowerCase()}">${p.direction === 'LONG' ? 'BUY' : 'SELL'}</span>
         <span class="badge info">${p.sector}</span>
-        <span class="badge ${p.real ? 'long' : 'info'}" title="${p.real ? 'Real Kite historical candles' : 'Simulated series — Kite historical data unavailable for this stock'}">${p.real ? '● REAL' : '○ SIM'}</span>
-        ${p.eventToday ? `<span class="badge short" title="${p.eventToday}">⚠ EVENT TODAY</span>` : ''}
+        <span class="badge ${p.real ? 'long' : 'info'}" data-tip="real" tabindex="0">${p.real ? '● REAL' : '○ SIM'}</span>
+        ${p.eventToday ? `<span class="badge short" data-tip="event" data-tip-html="<div class='tip-title'>Corporate event today</div><div class='tip-body'>${p.eventToday}. Deliberately not scored — event-day moves are driven by the announcement, not by the technical setup.</div>" tabindex="0">⚠ EVENT TODAY</span>` : ''}
         <span class="name">${p.name}</span>
-        <span class="score">setup score <b data-target="${p.score}">0</b>/100</span>
+        <span class="score" data-tip="score" data-tip-html="${scoreTipHtml(p).replace(/"/g, '&quot;')}" tabindex="0">setup score <b data-target="${p.score}">0</b>/100</span>
       </div>
-      <div style="margin-top:6px">₹${fmt(p.ltp)} <span class="${cls(p.changePct)}">${pct(p.changePct)}</span></div>
+      <div style="margin-top:6px"><span data-tip="ltp" tabindex="0">₹${fmt(p.ltp)}</span> <span class="${cls(p.changePct)}">${pct(p.changePct)}</span>${p.relStrength != null ? ` <span class="muted" style="font-size:12px" data-tip="relstrength" tabindex="0">(${pct(p.relStrength)} vs market)</span>` : ''}</div>
       <ul class="reasons">${p.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
       <div class="plan">
-        <div><span>Entry</span><b>₹${fmt(p.levels.referenceEntry)}</b></div>
-        <div class="sl"><span>Stop loss</span><b>₹${fmt(p.levels.stopLoss)}</b></div>
-        <div class="t1"><span>Target 1</span><b>₹${fmt(p.levels.target1)}</b><span class="rr" style="display:inline">1R</span></div>
-        <div class="t2"><span>Target 2</span><b>₹${fmt(p.levels.target2)}</b><span class="rr" style="display:inline">2R</span>
-          ${p.levels.target2Blocked ? `<span class="blocked">⚠ ${p.direction === 'LONG' ? 'R1' : 'S1'} sits before this level</span>` : ''}</div>
+        <div>${tip('entry', 'Entry')}<b>₹${fmt(p.levels.referenceEntry)}</b></div>
+        <div class="sl">${tip('stoploss', 'Stop loss')}<b>₹${fmt(p.levels.stopLoss)}</b></div>
+        <div class="t1">${tip('target1', 'Target 1')}<b>₹${fmt(p.levels.target1)}</b><span class="rr" style="display:inline" data-tip="risk" tabindex="0">1R</span></div>
+        <div class="t2">${tip('target2', 'Target 2')}<b>₹${fmt(p.levels.target2)}</b><span class="rr" style="display:inline" data-tip="risk" tabindex="0">2R</span>
+          ${p.levels.target2Blocked ? `<span class="blocked" data-tip="${p.direction === 'LONG' ? 'resistance1' : 'support1'}" tabindex="0">⚠ ${p.direction === 'LONG' ? 'Resistance 1' : 'Support 1'} sits before this level</span>` : ''}</div>
       </div>
-      <p class="plan-note">Risk ₹${fmt(p.levels.riskPerShare)}/share · qty risking 2% of ${capitalLabel} ≈ ${Math.floor((capital * 0.02) / Math.max(0.01, p.levels.riskPerShare))} shares · levels are 1.5×ATR calculations, not advice</p>
+      <p class="plan-note">Risk ₹${fmt(p.levels.riskPerShare)}/share · qty risking 2% of ${capitalLabel} ≈ ${Math.floor((capital * 0.02) / Math.max(0.01, p.levels.riskPerShare))} shares · levels are 1.5×${tip('atr', 'Average True Range')} calculations, not advice</p>
       <div class="levels">
-        <div><span>VWAP</span>₹${fmt(p.levels.vwap)}</div>
-        <div><span>Pivot</span>₹${fmt(p.levels.pivot)}</div>
-        <div><span>S1 / R1</span>₹${fmt(p.levels.support1)} / ₹${fmt(p.levels.resistance1)}</div>
+        <div>${tip('vwap', 'Volume Weighted Average Price')}₹${fmt(p.levels.vwap)}</div>
+        <div>${tip('pivot', 'Pivot point')}₹${fmt(p.levels.pivot)}</div>
+        <div>${tip('support1', 'Support 1')}₹${fmt(p.levels.support1)}</div>
+        <div>${tip('resistance1', 'Resistance 1')}₹${fmt(p.levels.resistance1)}</div>
         ${liveLine}
         ${smaLine}
       </div>
@@ -553,11 +919,13 @@ function renderPicks(d) {
 function renderInsights(d) {
   const b = d.breadth;
   const sentColor = b.sentiment === 'BULLISH' ? 'pos' : b.sentiment === 'BEARISH' ? 'neg' : 'neu';
+  const ctx = d.context;
   $('#breadth-cards').innerHTML = `
-    <div class="card"><h3>Sentiment</h3><div class="big ${sentColor}">${b.sentiment}</div><div class="muted">avg change ${pct(b.avgChangePct)}</div></div>
-    <div class="card"><h3>Advances</h3><div class="big pos">${b.advances}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
-    <div class="card"><h3>Declines</h3><div class="big neg">${b.declines}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
-    <div class="card"><h3>Data source</h3><div class="big" style="font-size:18px">${d.dataSource === 'KITE_LIVE' ? '🟢 Kite live' : '🟡 Simulated'}</div><div class="muted">${d.realDataCoverage ? d.realDataCoverage + ' real historical' : 'refreshes on demand'}</div></div>`;
+    <div class="card"><h3>${tip('sentiment', 'Sentiment')}</h3><div class="big ${sentColor}">${b.sentiment}</div><div class="muted">avg change ${pct(b.avgChangePct)}</div></div>
+    <div class="card"><h3>${tip('advances', 'Advances')}</h3><div class="big pos">${b.advances}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
+    <div class="card"><h3>${tip('declines', 'Declines')}</h3><div class="big neg">${b.declines}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
+    <div class="card"><h3>${tip('datasource', 'Data source')}</h3><div class="big" style="font-size:18px">${d.dataSource === 'KITE_LIVE' ? '🟢 Kite live' : '🟡 Simulated'}</div><div class="muted">${d.realDataCoverage ? d.realDataCoverage + ' real historical' : 'refreshes on demand'}</div></div>
+    ${ctx ? `<div class="card"><h3>${tip('atrband', 'Volatility band')}</h3><div class="big" style="font-size:18px">${ctx.tradeableAtrBand.low}–${ctx.tradeableAtrBand.high}%</div><div class="muted">median ${ctx.medianAtrPct}% · market ${pct(ctx.marketChangePct)}</div></div>` : ''}`;
 
   $('#sector-table').innerHTML = '<tr><th>Sector</th><th>Avg chg</th><th>Stocks</th></tr>' +
     d.sectors.map(s => `<tr><td>${s.sector}</td><td class="${cls(s.avgChangePct)}">${pct(s.avgChangePct)}</td><td class="muted">${s.count}</td></tr>`).join('');
@@ -864,6 +1232,7 @@ $('#study-bar').onclick = e => {
   applyStudyVisibility();
 };
 
+renderGuide();   // static content — no need to wait for auth or a data load
 loadUser().then(ok => { if (ok) { loadMarketStatus(); loadKiteStatus(); loadInsights(); } });
 setInterval(loadInsights, 60_000);       // refresh picks every minute
 setInterval(loadMarketStatus, 60_000);

@@ -897,19 +897,68 @@ function togglePin(symbol) {
   loadInsights();
 }
 
+// A failed load used to leave the skeletons up forever: there was no error
+// branch, so a 500 produced `{error}` with no `picks`, renderPicks threw on
+// `d.picks.filter`, and the page sat shimmering with nothing said. Whatever the
+// underlying cause, the failure has to be visible.
+let insightsInFlight = false;
+
+function showPicksError(message, detail) {
+  $('#picks-list').innerHTML = `<div class="card">
+    <div style="color:var(--red);font-weight:600;margin-bottom:6px">Could not load picks</div>
+    <div class="muted" style="font-size:13px;line-height:1.6">${message}</div>
+    ${detail ? `<div class="muted" style="font-size:12px;margin-top:8px"><code>${detail}</code></div>` : ''}
+    <button class="btn secondary" style="margin-top:12px" onclick="loadInsights()">Retry now</button>
+  </div>`;
+  $('#breadth-cards').innerHTML = '';
+}
+
 async function loadInsights() {
+  // Generating insights can take tens of seconds when Kite historical data is
+  // being fetched for the whole universe. The 60s refresh would then stack
+  // requests on top of a server already struggling, making it worse.
+  if (insightsInFlight) return;
+  insightsInFlight = true;
+
   if (!insightsLoadedOnce) {
     $('#picks-list').innerHTML = skeletonPicks();
     $('#breadth-cards').innerHTML = skeletonBreadth();
   }
-  const q = pinnedSymbols.length ? `?pinned=${encodeURIComponent(pinnedSymbols.join(','))}` : '';
-  const r = await api('/api/insights' + q);
-  if (r.status === 401) { location.href = '/login.html'; return; }
-  const data = await r.json();
-  latest = data;
-  renderPicks(data);
-  renderInsights(data);
-  insightsLoadedOnce = true;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90_000);
+
+  try {
+    const q = pinnedSymbols.length ? `?pinned=${encodeURIComponent(pinnedSymbols.join(','))}` : '';
+    const r = await api('/api/insights' + q, { signal: controller.signal });
+    if (r.status === 401) { location.href = '/login.html'; return; }
+
+    const data = await r.json().catch(() => null);
+
+    if (!r.ok) {
+      return showPicksError(
+        'The server returned an error while building the picks. The Kite connection and market data are the usual causes.',
+        `HTTP ${r.status}: ${data?.error || 'no detail'}`);
+    }
+    if (!data || !Array.isArray(data.picks)) {
+      return showPicksError('The server responded, but without a picks list.',
+        data?.error || 'malformed response');
+    }
+
+    latest = data;
+    renderPicks(data);
+    renderInsights(data);
+    insightsLoadedOnce = true;
+  } catch (err) {
+    showPicksError(
+      err.name === 'AbortError'
+        ? 'The request took longer than 90 seconds and was cancelled. Fetching Kite historical data for the whole universe can be slow on a small instance.'
+        : 'Could not reach the server.',
+      err.message);
+  } finally {
+    clearTimeout(timeout);
+    insightsInFlight = false;
+  }
 }
 
 // Count a <b> element up from its current number to a target over `dur` ms.

@@ -149,6 +149,34 @@
   .modal .ok { color:var(--green); font-size:13px; margin-top:10px; min-height:18px; }
   .modal .row { display:flex; gap:10px; }
   .modal .row .btn { flex:1; }
+
+  /* ---------- chart modal ---------- */
+  .pick { cursor:pointer; }
+  .pick .chart-hint { font-size:11px; color:var(--muted); margin-top:8px; opacity:0; transition:opacity .18s ease; }
+  .pick:hover .chart-hint { opacity:1; }
+  .modal.chart-modal { width:min(1100px, 95vw); padding:18px 20px 14px; }
+  .chart-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .chart-head .sym { font-size:18px; font-weight:600; }
+  .chart-head .spacer { flex:1; }
+  .chart-close { background:none; border:1px solid var(--border); color:var(--muted); border-radius:6px;
+    cursor:pointer; font-size:16px; line-height:1; padding:5px 10px; transition:color .15s ease,border-color .15s ease; }
+  .chart-close:hover { color:var(--text); border-color:var(--blue); }
+  .study-bar { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .study-toggle { font-size:12px; padding:5px 11px; border-radius:999px; cursor:pointer; user-select:none;
+    border:1px solid var(--border); background:var(--bg); color:var(--muted); transition:all .15s ease; }
+  .study-toggle:hover { border-color:var(--blue); color:var(--text); }
+  .study-toggle.on { color:var(--text); border-color:currentColor; }
+  .study-toggle.on[data-study="regression"] { color:#a371f7; }
+  .study-toggle.on[data-study="volumeCog"] { color:#58a6ff; }
+  .study-toggle.on[data-study="poc"] { color:#d29922; }
+  .study-toggle.on[data-study="volume"] { color:#8b949e; }
+  .study-toggle.on[data-study="levels"] { color:#3fb950; }
+  .study-toggle.on[data-study="cog"] { color:#f778ba; }
+  #price-chart { height:380px; width:100%; }
+  #cog-chart { height:130px; width:100%; margin-top:2px; }
+  .cog-label { font-size:11px; color:var(--muted); margin:6px 0 0; }
+  .chart-foot { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:var(--muted); margin-top:8px; }
+  .chart-loading { height:510px; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:13px; }
   .flash { animation:tickFlash .8s ease; }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
@@ -231,6 +259,39 @@
   </section>
 </main>
 
+<div class="modal-overlay hidden" id="chart-modal">
+  <div class="modal chart-modal">
+    <div class="chart-head">
+      <span class="sym" id="chart-sym"></span>
+      <span class="badge" id="chart-dir"></span>
+      <span class="badge info" id="chart-real"></span>
+      <span class="muted" id="chart-name"></span>
+      <span class="spacer"></span>
+      <select id="chart-interval" style="width:auto;margin:0;padding:5px 8px;font-size:12px">
+        <option value="minute" selected>1 min</option>
+        <option value="5minute">5 min</option>
+        <option value="15minute">15 min</option>
+        <option value="60minute">1 hour</option>
+      </select>
+      <button class="chart-close" id="chart-close" title="Close (Esc)">✕</button>
+    </div>
+    <div class="study-bar" id="study-bar">
+      <span class="study-toggle on" data-study="volume">Volume</span>
+      <span class="study-toggle on" data-study="cog">COG oscillator</span>
+      <span class="study-toggle on" data-study="regression">Regression channel</span>
+      <span class="study-toggle on" data-study="volumeCog">Volume COG</span>
+      <span class="study-toggle on" data-study="poc">POC</span>
+      <span class="study-toggle on" data-study="levels">Trade levels</span>
+    </div>
+    <div id="chart-body">
+      <div id="price-chart"></div>
+      <p class="cog-label" id="cog-label">Ehlers Center of Gravity</p>
+      <div id="cog-chart"></div>
+    </div>
+    <div class="chart-foot" id="chart-foot"></div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="pw-modal">
   <form class="modal" id="pw-form">
     <h2>Change password</h2>
@@ -250,6 +311,7 @@
   </form>
 </div>
 
+<script src="/vendor/lightweight-charts.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const fmt = n => n == null ? '—' : Number(n).toLocaleString('en-IN', {maximumFractionDigits:2});
@@ -293,7 +355,23 @@ $('#theme-btn').onclick = () => {
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('theme', next);
   $('#theme-btn').textContent = next === 'dark' ? '☀️ Light' : '🌙 Dark';
+  rethemeCharts();
 };
+
+// The charts paint their own background and text, so they do not inherit the
+// CSS variable swap the rest of the page gets — they have to be told.
+function rethemeCharts() {
+  if (!charts) return;
+  const t = chartTheme();
+  for (const c of [charts.price, charts.cog]) {
+    c.applyOptions({
+      layout: { background: { color: t.bg }, textColor: t.text },
+      grid: { vertLines: { color: t.grid }, horzLines: { color: t.grid } },
+      rightPriceScale: { borderColor: t.border },
+      timeScale: { borderColor: t.border },
+    });
+  }
+}
 
 // ---------- api helper ----------
 const api = (url, opts = {}) => fetch(url, { ...opts, credentials: 'include' });
@@ -433,7 +511,7 @@ function renderPicks(d) {
     const fundLine = fund
       ? `<div class="muted" style="margin-top:8px;font-size:12px">${fund.pe != null ? `P/E ${fmt(fund.pe)}${fund.sectorPe != null ? ` (sector ${fmt(fund.sectorPe)})` : ''} · ` : ''}${fund.weekLow != null && fund.weekHigh != null ? `52w range ₹${fmt(fund.weekLow)}–₹${fmt(fund.weekHigh)}` : ''}</div>` : '';
     return `
-    <div class="card pick ${p.direction.toLowerCase()}" style="animation-delay:${i*70}ms">
+    <div class="card pick ${p.direction.toLowerCase()}" style="animation-delay:${i*70}ms" data-symbol="${p.symbol}">
       <div class="pick-head">
         <span class="sym">${p.symbol}</span>
         <span class="badge action ${p.direction.toLowerCase()}">${p.direction === 'LONG' ? 'BUY' : 'SELL'}</span>
@@ -461,10 +539,14 @@ function renderPicks(d) {
         ${smaLine}
       </div>
       ${fundLine}
+      <div class="chart-hint">📊 Click for candlestick chart with COG &amp; volume</div>
     </div>`;
   }).join('');
   list.querySelectorAll('.score b[data-target]').forEach((el, i) => {
     setTimeout(() => countUpTo(el, Number(el.dataset.target)), i * 70 + 120);
+  });
+  list.querySelectorAll('.pick[data-symbol]').forEach(card => {
+    card.onclick = () => openChart(card.dataset.symbol);
   });
 }
 
@@ -562,6 +644,226 @@ $('#refresh').onclick = async () => {
   await Promise.all([loadInsights(), loadMarketStatus(), loadKiteStatus()]);
   btn.classList.remove('spinning');
 };
+// ---------- candlestick chart with COG / volume studies ----------
+//
+// Two charts rather than one: Lightweight Charts v4 has no multi-pane support
+// (that landed in v5), so the oscillator gets its own chart with a synced time
+// scale. Both are built once on first open and reused — recreating them per
+// pick leaks WebGL contexts and loses the user's zoom.
+const CHART_COLORS = {
+  up: '#3fb950', down: '#f85149', cog: '#f778ba', signal: '#8b949e',
+  regression: '#a371f7', volumeCog: '#58a6ff', poc: '#d29922',
+  entry: '#58a6ff', stop: '#f85149', t1: '#3fb950', t2: '#3fb950',
+};
+
+let charts = null;          // { price, cog, series… } once built
+let chartSymbol = null;
+let chartTimer = null;
+let priceLines = [];
+const studyState = { volume: true, cog: true, regression: true, volumeCog: true, poc: true, levels: true };
+
+function chartTheme() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  return {
+    bg: light ? '#ffffff' : '#0d1117',
+    text: light ? '#24292f' : '#e6edf3',
+    grid: light ? '#eaeef2' : '#1c2128',
+    border: light ? '#d0d7de' : '#30363d',
+  };
+}
+
+function buildCharts() {
+  const t = chartTheme();
+  const base = paneHeight => ({
+    autoSize: true,
+    layout: { background: { color: t.bg }, textColor: t.text, fontSize: 11 },
+    grid: { vertLines: { color: t.grid }, horzLines: { color: t.grid } },
+    rightPriceScale: { borderColor: t.border },
+    timeScale: { borderColor: t.border, timeVisible: true, secondsVisible: false },
+    crosshair: { mode: 0 },
+  });
+
+  const price = LightweightCharts.createChart($('#price-chart'), base());
+  const cog = LightweightCharts.createChart($('#cog-chart'), {
+    ...base(),
+    timeScale: { ...base().timeScale, visible: false },
+  });
+
+  const candles = price.addCandlestickSeries({
+    upColor: CHART_COLORS.up, downColor: CHART_COLORS.down,
+    borderUpColor: CHART_COLORS.up, borderDownColor: CHART_COLORS.down,
+    wickUpColor: CHART_COLORS.up, wickDownColor: CHART_COLORS.down,
+  });
+
+  // Volume shares the price pane but gets its own invisible scale, pinned to
+  // the bottom fifth so it reads as a footer rather than competing with price.
+  const volume = price.addHistogramSeries({
+    priceFormat: { type: 'volume' }, priceScaleId: '', lastValueVisible: false, priceLineVisible: false,
+  });
+  volume.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+
+  const line = (chart, color, width = 1, style = 0) => chart.addLineSeries({
+    color, lineWidth: width, lineStyle: style, priceLineVisible: false,
+    lastValueVisible: false, crosshairMarkerVisible: false,
+  });
+
+  const series = {
+    candles, volume,
+    regMid: line(price, CHART_COLORS.regression, 1),
+    regUpper: line(price, CHART_COLORS.regression, 1, 2),
+    regLower: line(price, CHART_COLORS.regression, 1, 2),
+    volumeCog: line(price, CHART_COLORS.volumeCog, 2),
+    cog: line(cog, CHART_COLORS.cog, 2),
+    cogSignal: line(cog, CHART_COLORS.signal, 1, 2),
+  };
+
+  // Keep the two time scales locked together, guarding the echo — setting one
+  // fires the other's handler, which would set the first back.
+  let syncing = false;
+  const sync = (from, to) => from.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (syncing || !range) return;
+    syncing = true;
+    to.timeScale().setVisibleLogicalRange(range);
+    syncing = false;
+  });
+  sync(price, cog);
+  sync(cog, price);
+
+  charts = { price, cog, ...series };
+  return charts;
+}
+
+function applyStudyVisibility() {
+  if (!charts) return;
+  charts.volume.applyOptions({ visible: studyState.volume });
+  charts.cog.applyOptions({ visible: studyState.cog });
+  charts.cogSignal.applyOptions({ visible: studyState.cog });
+  $('#cog-chart').style.display = studyState.cog ? '' : 'none';
+  $('#cog-label').style.display = studyState.cog ? '' : 'none';
+  for (const k of ['regMid', 'regUpper', 'regLower']) charts[k].applyOptions({ visible: studyState.regression });
+  charts.volumeCog.applyOptions({ visible: studyState.volumeCog });
+  drawPriceLines();
+}
+
+// POC and the trade plan are horizontal levels, not series — they are redrawn
+// wholesale because Lightweight Charts has no way to toggle a price line.
+let lastPayload = null;
+function drawPriceLines() {
+  if (!charts) return;
+  priceLines.forEach(l => charts.candles.removePriceLine(l));
+  priceLines = [];
+  const add = (price, color, title, style = 2) => {
+    if (price == null) return;
+    priceLines.push(charts.candles.createPriceLine({
+      price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title,
+    }));
+  };
+
+  if (studyState.poc && lastPayload?.studies?.volumeProfile?.poc != null) {
+    add(lastPayload.studies.volumeProfile.poc, CHART_COLORS.poc, 'POC', 0);
+  }
+  if (studyState.levels && chartSymbol) {
+    const pick = latest?.picks?.find(p => p.symbol === chartSymbol);
+    if (pick) {
+      add(pick.levels.referenceEntry, CHART_COLORS.entry, 'Entry', 0);
+      add(pick.levels.stopLoss, CHART_COLORS.stop, 'SL');
+      add(pick.levels.target1, CHART_COLORS.t1, 'T1');
+      add(pick.levels.target2, CHART_COLORS.t2, 'T2');
+    }
+  }
+}
+
+function renderChart(payload, { keepView }) {
+  lastPayload = payload;
+  const c = payload.candles || [];
+  charts.candles.setData(c);
+  charts.volume.setData(c.map(k => ({
+    time: k.time, value: k.volume,
+    color: k.close >= k.open ? 'rgba(63,185,80,.45)' : 'rgba(248,81,73,.45)',
+  })));
+
+  const s = payload.studies || {};
+  const pick = (arr, key) => (arr || []).filter(p => p[key] != null).map(p => ({ time: p.time, value: p[key] }));
+  charts.regMid.setData(pick(s.regression, 'mid'));
+  charts.regUpper.setData(pick(s.regression, 'upper'));
+  charts.regLower.setData(pick(s.regression, 'lower'));
+  charts.volumeCog.setData(pick(s.volumeCog, 'value'));
+  charts.cog.setData(pick(s.cog, 'cog'));
+  charts.cogSignal.setData(pick(s.cog, 'signal'));
+
+  $('#cog-label').textContent =
+    `Ehlers Center of Gravity (${s.cogPeriod ?? 10}) · pink = COG, grey dashed = signal · crossovers mark turns`;
+
+  const last = c[c.length - 1];
+  $('#chart-foot').innerHTML = [
+    // Kite spells the 1-minute interval "minute", with no leading 1.
+    `${c.length} × ${(payload.interval === 'minute' ? '1' : payload.interval.replace('minute', ''))}-min candles`,
+    last ? `O ${fmt(last.open)} H ${fmt(last.high)} L ${fmt(last.low)} C ${fmt(last.close)}` : '',
+    s.regressionPeriod ? `Regression ${s.regressionPeriod}-bar ±2σ` : '',
+    s.volumeProfile?.poc != null ? `POC ₹${fmt(s.volumeProfile.poc)}` : '',
+    'Refreshes every 60s',
+  ].filter(Boolean).map(x => `<span>${x}</span>`).join('');
+
+  drawPriceLines();
+  if (!keepView) { charts.price.timeScale().fitContent(); charts.cog.timeScale().fitContent(); }
+}
+
+async function loadChartData({ keepView = false } = {}) {
+  const interval = $('#chart-interval').value;
+  const r = await api(`/api/market/candles/${chartSymbol}?interval=${interval}`);
+  if (!r.ok) {
+    $('#chart-foot').innerHTML = `<span style="color:var(--red)">Could not load candles (${r.status})</span>`;
+    return;
+  }
+  const payload = await r.json();
+  if (payload.symbol !== chartSymbol) return;   // a different pick was opened mid-flight
+  $('#chart-real').textContent = payload.real ? '● REAL' : '○ SIM';
+  $('#chart-real').className = 'badge ' + (payload.real ? 'long' : 'info');
+  $('#chart-real').title = payload.real
+    ? 'Real Kite historical candles'
+    : 'Simulated candles — connect Kite (with the Historical Data add-on) for real ones';
+  $('#chart-name').textContent = payload.name || '';
+  renderChart(payload, { keepView });
+}
+
+function openChart(symbol) {
+  chartSymbol = symbol;
+  const pick = latest?.picks?.find(p => p.symbol === symbol);
+  $('#chart-sym').textContent = symbol;
+  $('#chart-dir').textContent = pick ? (pick.direction === 'LONG' ? 'BUY' : 'SELL') : '';
+  $('#chart-dir').className = 'badge action ' + (pick ? pick.direction.toLowerCase() : '');
+  $('#chart-modal').classList.remove('hidden');
+
+  if (!charts) buildCharts();          // built here so the panes have real width
+  applyStudyVisibility();
+  loadChartData();
+
+  clearInterval(chartTimer);
+  chartTimer = setInterval(() => loadChartData({ keepView: true }), 60_000);
+}
+
+function closeChart() {
+  clearInterval(chartTimer);
+  chartTimer = null;
+  chartSymbol = null;
+  $('#chart-modal').classList.add('hidden');
+}
+
+$('#chart-close').onclick = closeChart;
+$('#chart-modal').onclick = e => { if (e.target.id === 'chart-modal') closeChart(); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('#chart-modal').classList.contains('hidden')) closeChart();
+});
+$('#chart-interval').onchange = () => loadChartData();
+$('#study-bar').onclick = e => {
+  const el = e.target.closest('.study-toggle');
+  if (!el) return;
+  const key = el.dataset.study;
+  studyState[key] = !studyState[key];
+  el.classList.toggle('on', studyState[key]);
+  applyStudyVisibility();
+};
+
 loadUser().then(ok => { if (ok) { loadMarketStatus(); loadKiteStatus(); loadInsights(); } });
 setInterval(loadInsights, 60_000);       // refresh picks every minute
 setInterval(loadMarketStatus, 60_000);

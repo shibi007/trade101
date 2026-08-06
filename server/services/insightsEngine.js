@@ -71,25 +71,32 @@ function mulberry32(seed) {
   };
 }
 
-// ---------- simulated intraday series (5-min candles from 9:15) ----------
-export function generateIntradaySeries(symbol, refPrice, date = new Date()) {
+// ---------- simulated intraday series (candles from 9:15) ----------
+// `stepMinutes` defaults to 5, the cadence the scoring engine works on. The
+// chart asks for 1-minute candles, so the session length is derived rather than
+// hardcoded — per-candle drift and volatility scale with it, otherwise 1-minute
+// candles would inherit five minutes' worth of range each.
+export function generateIntradaySeries(symbol, refPrice, date = new Date(), stepMinutes = 5) {
   const dateKey = date.toISOString().slice(0, 10);
   const rand = mulberry32(hashSeed(symbol + dateKey));
+  const SESSION_MINUTES = 375;                       // 9:15 → 15:30
+  const totalCandles = Math.floor(SESSION_MINUTES / stepMinutes);
+  const scale = Math.sqrt(stepMinutes / 5);          // volatility grows with √time
 
   const prevClose = refPrice * (1 + (rand() - 0.5) * 0.02);
   const gapPct = (rand() - 0.48) * 2.2;            // gap between roughly -1.1% and +1.1%
   const open = prevClose * (1 + gapPct / 100);
-  const trendBias = (rand() - 0.5) * 0.003;         // per-candle drift
-  const vol = 0.0018 + rand() * 0.0025;             // per-candle volatility
+  const trendBias = (rand() - 0.5) * 0.003 * scale;  // per-candle drift
+  const vol = (0.0018 + rand() * 0.0025) * scale;    // per-candle volatility
 
   const candles = [];
   let price = open;
-  const baseVolume = Math.floor(50000 + rand() * 400000);
+  const baseVolume = Math.floor((50000 + rand() * 400000) * (stepMinutes / 5));
 
-  // 75 candles = full session 9:15 → 15:30; cut to "now" for live feel
+  // Full session cut to "now" for live feel
   const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const minsSinceOpen = (nowLocal.getHours() * 60 + nowLocal.getMinutes()) - (9 * 60 + 15);
-  const candleCount = Math.max(3, Math.min(75, Math.floor(minsSinceOpen / 5)));
+  const candleCount = Math.max(3, Math.min(totalCandles, Math.floor(minsSinceOpen / stepMinutes)));
 
   for (let i = 0; i < candleCount; i++) {
     const drift = trendBias * price;
@@ -98,7 +105,7 @@ export function generateIntradaySeries(symbol, refPrice, date = new Date()) {
     const high = Math.max(price, close) * (1 + rand() * vol);
     const low = Math.min(price, close) * (1 - rand() * vol);
     // U-shaped volume curve: heavy at open/close
-    const sessionPos = i / 75;
+    const sessionPos = i / totalCandles;
     const volumeMult = 1.6 - 2.2 * sessionPos + 2.0 * sessionPos * sessionPos + rand() * 0.4;
     candles.push({
       t: i,

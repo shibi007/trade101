@@ -163,6 +163,30 @@
     border:1px solid var(--amber); color:var(--amber); }
   .pinned-note { font-size:12px; color:var(--muted); margin:0 0 10px; }
   .pinned-note b { color:var(--amber); }
+
+  /* ---------- live ticks + alerts ---------- */
+  @keyframes flashUp { 0%{background:rgba(63,185,80,.28)} 100%{background:transparent} }
+  @keyframes flashDown { 0%{background:rgba(248,81,73,.28)} 100%{background:transparent} }
+  .tick-up { animation:flashUp .6s ease-out; border-radius:4px; }
+  .tick-down { animation:flashDown .6s ease-out; border-radius:4px; }
+  #toasts { position:fixed; right:18px; bottom:18px; z-index:200; display:flex; flex-direction:column;
+    gap:10px; max-width:340px; }
+  .toast { background:var(--panel); border:1px solid var(--border); border-left:3px solid var(--blue);
+    border-radius:9px; padding:12px 14px; box-shadow:0 12px 34px rgba(0,0,0,.4);
+    animation:riseIn .28s cubic-bezier(.22,1,.36,1) both; cursor:pointer; }
+  .toast.hit-t1, .toast.hit-t2 { border-left-color:var(--green); }
+  .toast.hit-sl { border-left-color:var(--red); }
+  .toast.entry { border-left-color:var(--amber); }
+  .toast .t-title { font-weight:600; font-size:13px; margin-bottom:2px; }
+  .toast .t-body { font-size:12px; color:var(--muted); line-height:1.5; }
+  .toast .t-time { font-size:10px; color:var(--muted); margin-top:4px; }
+  .live-chip { display:inline-flex; align-items:center; gap:6px; }
+  .alert-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px;
+    color:var(--muted); margin:0 0 10px; }
+  .alert-bar button { font-size:12px; padding:4px 11px; border-radius:999px; cursor:pointer;
+    border:1px solid var(--border); background:var(--bg); color:var(--muted); transition:all .15s ease; }
+  .alert-bar button:hover { border-color:var(--blue); color:var(--text); }
+  .alert-bar button.on { color:var(--green); border-color:currentColor; }
   .pick .chart-hint { font-size:11px; color:var(--muted); margin-top:8px; opacity:0; transition:opacity .18s ease; }
   .pick:hover .chart-hint { opacity:1; }
   .modal.chart-modal { width:min(1100px, 95vw); padding:18px 20px 14px; }
@@ -265,6 +289,11 @@
   <!-- ============ PICKS TAB ============ -->
   <section id="tab-picks">
     <p class="src-note" id="picks-source"></p>
+    <p class="alert-bar" id="alert-bar">
+      <span id="live-status">○ Live ticks off</span>
+      <button id="alerts-toggle">🔔 Enable alerts</button>
+      <span id="alert-summary"></span>
+    </p>
     <p class="pinned-note" id="pinned-note"></p>
     <div class="grid" id="picks-list"></div>
     <div class="disclaimer">⚠️ Algorithmic screening for educational purposes only — not investment advice. Levels are indicator-derived references, not recommendations. Consult a SEBI-registered advisor before trading.</div>
@@ -328,6 +357,8 @@
     </div>
   </section>
 </main>
+
+<div id="toasts"></div>
 
 <div class="modal-overlay hidden" id="chart-modal">
   <div class="modal chart-modal">
@@ -958,7 +989,7 @@ function renderPicks(d) {
         <span class="name">${p.name}</span>
         <span class="score" data-tip="score" data-tip-html="${scoreTipHtml(p).replace(/"/g, '&quot;')}" tabindex="0">setup score <b data-target="${p.score}">0</b>/100</span>
       </div>
-      <div style="margin-top:6px"><span data-tip="ltp" tabindex="0">₹${fmt(p.ltp)}</span> <span class="${cls(p.changePct)}">${pct(p.changePct)}</span>${p.relStrength != null ? ` <span class="muted" style="font-size:12px" data-tip="relstrength" tabindex="0">(${pct(p.relStrength)} vs market)</span>` : ''}</div>
+      <div style="margin-top:6px"><span data-tip="ltp" tabindex="0" data-price="${p.ltp}">₹${fmt(p.ltp)}</span> <span class="${cls(p.changePct)}">${pct(p.changePct)}</span>${p.relStrength != null ? ` <span class="muted" style="font-size:12px" data-tip="relstrength" tabindex="0">(${pct(p.relStrength)} vs market)</span>` : ''}</div>
       <ul class="reasons">${p.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
       <div class="plan">
         <div>${tip('entry', 'Entry')}<b>₹${fmt(p.levels.referenceEntry)}</b></div>
@@ -1392,8 +1423,172 @@ $('#study-bar').onclick = e => {
   applyStudyVisibility();
 };
 
+// ---------- live ticks over WebSocket ----------
+//
+// Polling cannot deliver live prices: the interval is a floor on staleness and
+// every poll costs a round trip whether or not anything moved. The server holds
+// one Kite ticker per session and pushes batched ticks here.
+//
+// Ticks update the *displayed* price only. Scores, levels and rankings still
+// come from the periodic REST refresh — recomputing a setup score from a single
+// tick would make the board flicker between recommendations on every trade.
+const livePrices = new Map();   // symbol -> { lastPrice, changePct, at }
+let tickSocket = null;
+let tickRetries = 0;
+
+function setLiveStatus(text, live) {
+  const el = $('#live-status');
+  if (!el) return;
+  el.className = 'live-chip';
+  el.innerHTML = live
+    ? '<span class="dot live" style="background:var(--green);color:var(--green)"></span>Live ticks'
+    : `<span class="dot" style="background:var(--muted)"></span>${text}`;
+}
+
+function connectTicks() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  tickSocket = new WebSocket(`${proto}//${location.host}`);
+
+  tickSocket.onopen = () => { tickRetries = 0; };
+
+  tickSocket.onmessage = e => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+
+    if (msg.type === 'ticks') {
+      for (const t of msg.ticks) {
+        // Read the previous price before overwriting it — the crossing rules
+        // compare against it, so updating first would make every crossing
+        // invisible (previous would always equal current).
+        const prev = livePrices.get(t.symbol)?.lastPrice ?? null;
+        livePrices.set(t.symbol, { lastPrice: t.lastPrice, changePct: t.changePct, at: Date.now() });
+        applyTick(t);
+        checkAlerts(t, prev);
+      }
+    } else if (msg.type === 'ticker-status') {
+      setLiveStatus(
+        msg.reason === 'kite-not-connected' ? 'Live ticks need a Kite login'
+          : msg.error ? `Live ticks: ${msg.error}`
+          : 'Live ticks reconnecting…',
+        msg.connected);
+    }
+  };
+
+  tickSocket.onclose = () => {
+    setLiveStatus('Live ticks disconnected', false);
+    // Backoff, capped — the server may be restarting, and a tight retry loop
+    // would spin the CPU for the whole time it is down.
+    const delay = Math.min(30000, 1000 * 2 ** tickRetries++);
+    setTimeout(connectTicks, delay);
+  };
+
+  tickSocket.onerror = () => { /* 'close' follows; reconnect is handled there */ };
+}
+
+/** Update the price shown on a card in place, without re-rendering it. */
+function applyTick(t) {
+  const card = document.querySelector(`.pick[data-symbol="${t.symbol}"]`);
+  if (!card) return;
+  const priceEl = card.querySelector('[data-tip="ltp"]');
+  if (!priceEl) return;
+
+  const previous = Number(priceEl.dataset.price || 0);
+  priceEl.dataset.price = t.lastPrice;
+  priceEl.textContent = '₹' + fmt(t.lastPrice);
+
+  if (previous && t.lastPrice !== previous) {
+    const dir = t.lastPrice > previous ? 'tick-up' : 'tick-down';
+    priceEl.classList.remove('tick-up', 'tick-down');
+    void priceEl.offsetWidth;                  // restart the flash
+    priceEl.classList.add(dir);
+  }
+
+  if (t.changePct != null) {
+    const chg = priceEl.nextElementSibling;
+    if (chg) { chg.textContent = pct(t.changePct); chg.className = cls(t.changePct); }
+  }
+}
+
+// ---------- alerts ----------
+//
+// Fired from ticks rather than from the refresh, so an entry touch is caught
+// when it happens rather than up to a minute later. Each alert fires once per
+// symbol per session: a price hovering on a level would otherwise produce a
+// notification per tick.
+const firedAlerts = new Set();
+let alertsEnabled = localStorage.getItem('alertsEnabled') === 'true';
+
+function alertRules(pick, price, previous) {
+  const long = pick.direction === 'LONG';
+  const crossed = level =>
+    previous != null && level != null &&
+    (long ? (previous < level && price >= level) : (previous > level && price <= level));
+  // For a short, "reaching" the entry or a target means falling to it.
+  const reached = level =>
+    level != null && (long ? price >= level : price <= level);
+  const stopHit = pick.levels.stopLoss != null &&
+    (long ? price <= pick.levels.stopLoss : price >= pick.levels.stopLoss);
+
+  const out = [];
+  if (crossed(pick.levels.referenceEntry) || (previous == null && reached(pick.levels.referenceEntry))) {
+    out.push(['entry', 'Entry touched', `${pick.symbol} reached the reference entry ₹${fmt(pick.levels.referenceEntry)}.`]);
+  }
+  if (reached(pick.levels.target1)) out.push(['hit-t1', 'Target 1 reached', `${pick.symbol} hit T1 ₹${fmt(pick.levels.target1)} (1R).`]);
+  if (reached(pick.levels.target2)) out.push(['hit-t2', 'Target 2 reached', `${pick.symbol} hit T2 ₹${fmt(pick.levels.target2)} (2R).`]);
+  if (stopHit) out.push(['hit-sl', 'Stop loss level', `${pick.symbol} reached the stop ₹${fmt(pick.levels.stopLoss)}.`]);
+  return out;
+}
+
+function checkAlerts(t, prev) {
+  if (!alertsEnabled || !latest?.picks) return;
+  const pick = latest.picks.find(p => p.symbol === t.symbol);
+  if (!pick) return;
+
+  for (const [kind, title, body] of alertRules(pick, t.lastPrice, prev)) {
+    const key = `${t.symbol}:${kind}`;
+    if (firedAlerts.has(key)) continue;
+    firedAlerts.add(key);
+    notify(kind, title, body, t.symbol);
+  }
+  $('#alert-summary').textContent = firedAlerts.size ? `${firedAlerts.size} alert(s) this session` : '';
+}
+
+function notify(kind, title, body, symbol) {
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.innerHTML = `<div class="t-title">${title}</div><div class="t-body">${body}</div>
+    <div class="t-time">${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST · click to chart</div>`;
+  el.onclick = () => { el.remove(); if (symbol) openChart(symbol); };
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), 15000);
+
+  // A desktop notification only reaches the user when the tab is not focused;
+  // the toast covers the case where it is.
+  if (window.Notification?.permission === 'granted' && document.hidden) {
+    try { new Notification(`Trade101 — ${title}`, { body, tag: `${symbol}:${kind}` }); } catch { /* blocked */ }
+  }
+}
+
+function renderAlertToggle() {
+  const btn = $('#alerts-toggle');
+  btn.classList.toggle('on', alertsEnabled);
+  btn.textContent = alertsEnabled ? '🔔 Alerts on' : '🔔 Enable alerts';
+}
+
+$('#alerts-toggle').onclick = async () => {
+  alertsEnabled = !alertsEnabled;
+  localStorage.setItem('alertsEnabled', String(alertsEnabled));
+  // Ask for desktop permission only when alerts are actually switched on —
+  // a permission prompt on page load is the kind of thing people click away.
+  if (alertsEnabled && window.Notification && Notification.permission === 'default') {
+    try { await Notification.requestPermission(); } catch { /* dismissed */ }
+  }
+  renderAlertToggle();
+};
+
+renderAlertToggle();
 renderGuide();   // static content — no need to wait for auth or a data load
-loadUser().then(ok => { if (ok) { loadMarketStatus(); loadKiteStatus(); loadInsights(); } });
+loadUser().then(ok => { if (ok) { loadMarketStatus(); loadKiteStatus(); loadInsights(); connectTicks(); } });
 setInterval(loadInsights, 60_000);       // refresh picks every minute
 setInterval(loadMarketStatus, 60_000);
 </script>

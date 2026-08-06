@@ -314,6 +314,16 @@ export async function getPositions(token) {
   }
 }
 
+/**
+ * Credentials needed to open a ticker connection. Null unless a Kite login has
+ * completed — the ticker needs an access token, not just the API key.
+ */
+export function getTickerCredentials(token) {
+  const kite = getKiteSession(token);
+  if (!kite?.apiKey || !kite?.accessToken) return null;
+  return { apiKey: kite.apiKey, accessToken: kite.accessToken };
+}
+
 export function isConnected(token) {
   const kite = getKiteSession(token);
   return Boolean(kite?.accessToken);

@@ -132,6 +132,38 @@ function sma(closes, period) {
   return round2(slice.reduce((a, b) => a + b, 0) / period);
 }
 
+// ---------- cross-sectional statistics ----------
+function mean(xs) {
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+}
+
+function median(xs) {
+  if (!xs.length) return 0;
+  const sorted = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function stdev(xs) {
+  if (xs.length < 2) return 0;
+  const m = mean(xs);
+  return Math.sqrt(mean(xs.map(x => (x - m) ** 2)));
+}
+
+/**
+ * Standardise a value against the universe (how many standard deviations from
+ * the mean). Returns 0 when the universe carries no cross-sectional
+ * information — a factor that cannot discriminate must not move the ranking.
+ */
+function zscore(value, m, sd) {
+  if (!Number.isFinite(sd) || sd === 0) return 0;
+  return (value - m) / sd;
+}
+
+function clamp(x, lo, hi) {
+  return Math.max(lo, Math.min(hi, x));
+}
+
 /**
  * Real intraday + daily series from Kite historical data. Returns null
  * (never throws) if the historical add-on isn't enabled, Kite isn't
@@ -227,6 +259,9 @@ export function computeIndicators(series) {
     vwap, aboveVwap: ltp > vwap,
     orHigh: round2(orHigh), orLow: round2(orLow), orbStatus,
     momentum30m, relVolume, atr,
+    // ATR as a share of price, so volatility is comparable across a ₹160 and a
+    // ₹12,000 stock. Raw ATR is not: it scales with price, not with tradeability.
+    atrPct: round2((atr / ltp) * 100),
     pivot, r1, s1,
     gapPct, changePct, rangePosition,
     volume: cumV,
@@ -237,22 +272,80 @@ export function computeIndicators(series) {
 }
 
 // ---------- scoring & pick generation ----------
-export function scoreStock(ind) {
+
+/**
+ * Universe-wide statistics, computed once per snapshot and passed to every
+ * `scoreStock` call.
+ *
+ * Scoring a stock in isolation against fixed thresholds cannot tell a strong
+ * stock from a strong market: on a day the whole market is up 2%, a stock up
+ * 0.5% trips every "positive change" test while actually lagging badly. The
+ * context supplies what an absolute threshold cannot — where this stock sits
+ * relative to the others available to trade today.
+ */
+export function buildUniverseContext(indicators) {
+  const changes = indicators.map(i => i.changePct);
+  const marketChangePct = round2(mean(changes));
+
+  // Relative strength is measured against the universe mean, so these stats are
+  // taken on the already-relative values.
+  const relStrengths = changes.map(c => c - marketChangePct);
+  const relVolumes = indicators.map(i => i.relVolume);
+  const atrPcts = indicators.map(i => i.atrPct);
+
+  // The tradeable volatility band is expressed as a multiple of the universe
+  // median rather than as fixed percentages. Absolute bands quoted for daily
+  // ATR (commonly 1.5-3% of price) do not transfer to the 5-minute candles used
+  // here, where the same stocks sit nearer 0.3-0.7%; anchoring to the median
+  // keeps the band meaningful across timeframes, regimes, and both data sources.
+  const medianAtrPct = median(atrPcts);
+
+  return {
+    marketChangePct,
+    medianAtrPct: round2(medianAtrPct),
+    atrBand: { low: round2(medianAtrPct * 0.5), high: round2(medianAtrPct * 1.8) },
+    relStrength: { mean: mean(relStrengths), sd: stdev(relStrengths) },
+    relVolume: { mean: mean(relVolumes), sd: stdev(relVolumes) },
+  };
+}
+
+/**
+ * How well a stock's volatility suits an intraday trade, from 0 to 1.
+ *
+ * Volatility is the one factor where more is not better, so it cannot be
+ * ranked monotonically. Too little range and the ATR-derived stop sits inside
+ * the noise and gets taken out by spread alone; too much and a 2R target is
+ * not reachable within the session. Scores 1.0 inside the band and decays to 0
+ * one band-width outside it.
+ */
+export function volatilityFit(atrPct, band) {
+  const width = band.high - band.low;
+  if (!(width > 0)) return 1;
+  const distance = Math.max(band.low - atrPct, atrPct - band.high, 0);
+  return clamp(1 - distance / width, 0, 1);
+}
+
+export function scoreStock(ind, context = null) {
   let long = 0, short = 0;
   const reasons = [];
+
+  // Strength relative to the rest of the universe. Without context this falls
+  // back to the raw day change, which is the same thing when the market is flat.
+  const relStrength = context ? round2(ind.changePct - context.marketChangePct) : ind.changePct;
 
   if (ind.orbStatus === 'BREAKOUT_UP') { long += 25; reasons.push('Broke above 15-min opening range'); }
   if (ind.orbStatus === 'BREAKOUT_DOWN') { short += 25; reasons.push('Broke below 15-min opening range'); }
 
-  if (ind.aboveVwap && ind.changePct > 0) { long += 20; reasons.push('Trading above VWAP with positive day change'); }
-  if (!ind.aboveVwap && ind.changePct < 0) { short += 20; reasons.push('Trading below VWAP with negative day change'); }
+  if (ind.aboveVwap && relStrength > 0) { long += 20; reasons.push(`Above VWAP and outperforming the market (+${relStrength}% relative)`); }
+  if (!ind.aboveVwap && relStrength < 0) { short += 20; reasons.push(`Below VWAP and underperforming the market (${relStrength}% relative)`); }
 
   if (ind.momentum30m > 0.3) { long += 15; reasons.push(`Strong 30-min momentum (+${ind.momentum30m}%)`); }
   if (ind.momentum30m < -0.3) { short += 15; reasons.push(`Weak 30-min momentum (${ind.momentum30m}%)`); }
 
+  // Volume confirms whichever way the stock is moving relative to its peers —
+  // a surge on a stock lagging the market is distribution, not accumulation.
   if (ind.relVolume > 1.3) {
-    const side = ind.changePct >= 0 ? 'long' : 'short';
-    if (side === 'long') long += 15; else short += 15;
+    if (relStrength >= 0) long += 15; else short += 15;
     reasons.push(`Volume surge (${ind.relVolume}x session average)`);
   }
 
@@ -292,11 +385,55 @@ export function scoreStock(ind) {
     reasons.push(`⚠ ${ind.eventToday}`); // informational only — deliberately not scored, event-day moves are unpredictable
   }
 
+  // Volatility that does not suit an intraday hold is a disqualifier on either
+  // side, like spread and circuit risk — the setup may be real but the trade
+  // is not takeable at a sane stop distance.
+  const volFit = context ? volatilityFit(ind.atrPct, context.atrBand) : 1;
+  const volPenalty = Math.round((1 - volFit) * 15);
+  // Only flag it when it actually costs the stock something — a name a hair
+  // outside the band does not deserve a warning next to its name.
+  if (volPenalty > 0) {
+    const penalty = volPenalty;
+    long -= penalty; short -= penalty;
+    const tooQuiet = ind.atrPct < context.atrBand.low;
+    reasons.push(tooQuiet
+      ? `⚠ Unusually quiet (ATR ${ind.atrPct}% vs ${context.medianAtrPct}% median) — stop sits inside the noise`
+      : `⚠ Unusually volatile (ATR ${ind.atrPct}% vs ${context.medianAtrPct}% median) — 2R target is a stretch`);
+  }
+
   const direction = long >= short ? 'LONG' : 'SHORT';
   // Clamp low as well as high — the liquidity/circuit penalties can drive the
   // raw total negative, and a negative score would sort oddly downstream.
   const score = Math.max(0, Math.min(100, Math.max(long, short)));
-  return { direction, score, reasons };
+
+  // The discrete signals above are worth 10-25 points each, so scores land on
+  // multiples of 5 and a 19-stock universe ties heavily — six stocks sharing
+  // 85 was routine. Ties then resolved by array order, which silently biased
+  // picks toward whichever names happen to be listed first.
+  //
+  // `rankScore` adds a continuous cross-sectional term to order those ties by
+  // how far each stock stands out from its peers. It is bounded to ±7 so it can
+  // never bridge a genuine one-signal gap (the smallest is 10) — it separates
+  // equals without overriding the setup itself.
+  let edge = 0;
+  if (context) {
+    const rsZ = zscore(relStrength, context.relStrength.mean, context.relStrength.sd);
+    const rvZ = zscore(ind.relVolume, context.relVolume.mean, context.relVolume.sd);
+    // Relative strength is signed: reward it in the direction being traded.
+    const directional = direction === 'LONG' ? rsZ : -rsZ;
+    const composite = 0.5 * directional + 0.3 * rvZ + 0.2 * (volFit * 2 - 1);
+    edge = clamp(composite, -2, 2) / 2 * 7;
+  }
+
+  return {
+    direction,
+    score,
+    // Sort on this, display `score`. Keeping them separate leaves the integer
+    // score the UI and the >= 40 cutoff already depend on untouched.
+    rankScore: round2(clamp(score + edge, 0, 100)),
+    relStrength,
+    reasons,
+  };
 }
 
 export function buildPick(stock, ind, scored) {
@@ -326,9 +463,11 @@ export function buildPick(stock, ind, scored) {
     sector: stock.sector,
     direction,
     score: scored.score,
+    rankScore: scored.rankScore,
     reasons: scored.reasons,
     ltp: ind.ltp,
     changePct: ind.changePct,
+    relStrength: scored.relStrength,
     levels: {
       referenceEntry: entry,
       stopLoss,
@@ -437,18 +576,28 @@ export async function generateInsights(token, liveQuotes = null) {
       ind.lastTradeTime = lq.last_trade_time ?? null;
     }
 
-    const scored = scoreStock(ind);
-    return { stock, ind, scored };
+    return { stock, ind };
   }));
+
+  // Scoring is a second pass: relative strength and the volatility band are
+  // defined against the universe, so every stock's indicators must exist before
+  // any stock can be scored.
+  const context = buildUniverseContext(snapshots.map(s => s.ind));
+  for (const s of snapshots) {
+    s.scored = scoreStock(s.ind, context);
+    s.ind.relStrength = s.scored.relStrength;
+  }
 
   // Real account funds, so the UI can size against actual capital rather than
   // a notional. Null when disconnected — never blocks the response.
   const funds = await getMargins(token).catch(() => null);
 
-  // Ranked picks: top 5 by score, minimum score 40
+  // Ranked picks: top 5 by rank score, minimum displayed score 40. The cutoff
+  // stays on the integer `score` so it keeps its plain meaning ("enough signals
+  // fired"); only the ordering uses the continuous rank.
   const picks = snapshots
     .filter(s => s.scored.score >= 40)
-    .sort((a, b) => b.scored.score - a.scored.score)
+    .sort((a, b) => b.scored.rankScore - a.scored.rankScore)
     .slice(0, 5)
     .map(s => buildPick(s.stock, s.ind, s.scored));
 
@@ -472,7 +621,8 @@ export async function generateInsights(token, liveQuotes = null) {
     ltp: s.ind.ltp, changePct: s.ind.changePct, gapPct: s.ind.gapPct,
     relVolume: s.ind.relVolume, orbStatus: s.ind.orbStatus,
     aboveVwap: s.ind.aboveVwap, momentum30m: s.ind.momentum30m,
-    score: s.scored.score, direction: s.scored.direction,
+    atrPct: s.ind.atrPct, relStrength: s.ind.relStrength,
+    score: s.scored.score, rankScore: s.scored.rankScore, direction: s.scored.direction,
     real: s.ind.real, eventToday: s.ind.eventToday,
     sma20: s.ind.sma20, sma50: s.ind.sma50, sma200: s.ind.sma200,
   }));
@@ -491,6 +641,13 @@ export async function generateInsights(token, liveQuotes = null) {
     realDataCoverage: `${realCount}/${bySymbol.length}`,
     disclaimer: 'Algorithmic screening for educational purposes only. Not investment advice. Consult a SEBI-registered advisor before trading.',
     breadth: { advances, declines, unchanged: snapshots.length - advances - declines, avgChangePct: avgChange, sentiment },
+    // The baselines every relative figure above is measured against, so a
+    // reader can tell "up 0.5%" on a market up 2% apart from genuine strength.
+    context: {
+      marketChangePct: context.marketChangePct,
+      medianAtrPct: context.medianAtrPct,
+      tradeableAtrBand: context.atrBand,
+    },
     funds,
     sectors,
     picks,

@@ -151,7 +151,18 @@
   .modal .row .btn { flex:1; }
 
   /* ---------- chart modal ---------- */
-  .pick { cursor:pointer; }
+  .pick { cursor:pointer; position:relative; }
+  .pick.is-pinned { border-color:var(--amber); }
+  .pin-btn { position:absolute; top:10px; right:10px; background:none; border:1px solid transparent;
+    border-radius:6px; cursor:pointer; font-size:15px; line-height:1; padding:4px 6px; opacity:.28;
+    transition:opacity .15s ease,border-color .15s ease,transform .12s ease; }
+  .pick:hover .pin-btn { opacity:.75; }
+  .pin-btn:hover { opacity:1 !important; border-color:var(--amber); transform:scale(1.1); }
+  .pin-btn.pinned { opacity:1; }
+  .pick-flag { display:inline-block; font-size:11px; padding:3px 9px; border-radius:999px; margin-top:8px;
+    border:1px solid var(--amber); color:var(--amber); }
+  .pinned-note { font-size:12px; color:var(--muted); margin:0 0 10px; }
+  .pinned-note b { color:var(--amber); }
   .pick .chart-hint { font-size:11px; color:var(--muted); margin-top:8px; opacity:0; transition:opacity .18s ease; }
   .pick:hover .chart-hint { opacity:1; }
   .modal.chart-modal { width:min(1100px, 95vw); padding:18px 20px 14px; }
@@ -254,6 +265,7 @@
   <!-- ============ PICKS TAB ============ -->
   <section id="tab-picks">
     <p class="src-note" id="picks-source"></p>
+    <p class="pinned-note" id="pinned-note"></p>
     <div class="grid" id="picks-list"></div>
     <div class="disclaimer">⚠️ Algorithmic screening for educational purposes only — not investment advice. Levels are indicator-derived references, not recommendations. Consult a SEBI-registered advisor before trading.</div>
   </section>
@@ -441,6 +453,10 @@ const GLOSSARY = {
     'REAL means genuine Kite historical candles. SIM means a deterministic simulator stood in because Kite is not connected or the Historical Data add-on is not enabled — plausible-looking, but not the market. Never trade from a SIM chart.'],
   datasource: ['Data source', null,
     'Whether quotes are coming live from Kite Connect or from the offline simulator.'],
+  'pinned-below': ['Pinned, below cutoff', null,
+    'You pinned this stock, so it stays on the board — but it scores under 40 and would not otherwise be shown. It is here for continuity of watching, not because the screener rates the setup.'],
+  'pinned-outside': ['Pinned, outside top 5', null,
+    'You pinned this stock. It clears the 40-point cutoff but is not among today\'s five highest-ranked setups, so it would normally be off the board.'],
   atrband: ['Tradeable volatility band', null,
     'The range of volatility that suits an intraday hold, anchored to the median of today\'s universe rather than a fixed percentage. Too quiet and the stop sits inside the noise; too wild and a 2R target is out of reach within the session.'],
 };
@@ -809,12 +825,47 @@ function skeletonBreadth() {
     `<div class="card skel skel-card" style="height:76px;animation-delay:${i*80}ms"></div>`).join('');
 }
 
+// ---------- pinned stocks ----------
+//
+// The picks list re-ranks every 60 seconds, so a stock being watched can drop
+// off mid-observation. Pins hold it on the board regardless of score. They live
+// in localStorage and ride along on each request, which keeps the server
+// stateless — the cost is that pins are per-browser, not per-account.
+let pinnedSymbols = [];
+try { pinnedSymbols = JSON.parse(localStorage.getItem('pinnedSymbols') || '[]'); } catch { pinnedSymbols = []; }
+
+function savePins() {
+  localStorage.setItem('pinnedSymbols', JSON.stringify(pinnedSymbols));
+}
+
+function togglePin(symbol) {
+  const i = pinnedSymbols.indexOf(symbol);
+  if (i >= 0) pinnedSymbols.splice(i, 1); else pinnedSymbols.push(symbol);
+  savePins();
+  // Reflect the click straight away against the data already held. The next
+  // load is authoritative — a newly pinned stock may not be in `latest.picks`
+  // at all, and only the server can build its card — but a pin button that
+  // takes ten seconds to change state reads as broken.
+  if (latest?.picks) {
+    for (const p of latest.picks) p.pinned = pinnedSymbols.includes(p.symbol);
+    // A card that was only on the board because it was pinned goes as soon as
+    // the pin does — leaving it until the next load would show a below-cutoff
+    // stock with no pin flag explaining why it is there.
+    latest.picks = latest.picks.filter(p => p.pinned || !(p.belowCutoff || p.outsideTop));
+    latest.picks.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.rankScore - a.rankScore));
+    renderPicks(latest);
+    renderInsights(latest);
+  }
+  loadInsights();
+}
+
 async function loadInsights() {
   if (!insightsLoadedOnce) {
     $('#picks-list').innerHTML = skeletonPicks();
     $('#breadth-cards').innerHTML = skeletonBreadth();
   }
-  const r = await api('/api/insights');
+  const q = pinnedSymbols.length ? `?pinned=${encodeURIComponent(pinnedSymbols.join(','))}` : '';
+  const r = await api('/api/insights' + q);
   if (r.status === 401) { location.href = '/login.html'; return; }
   const data = await r.json();
   latest = data;
@@ -843,6 +894,10 @@ function renderPicks(d) {
     : '🟡 Simulated data (connect Kite for live quotes) · generated ' + new Date(d.generatedAt).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata'}) + ' IST';
 
   const list = $('#picks-list');
+  const pinnedCount = d.picks.filter(p => p.pinned).length;
+  $('#pinned-note').innerHTML = pinnedCount
+    ? `📌 <b>${pinnedCount} pinned</b> — held on the board regardless of score. Click a pin to release it.`
+    : 'Click 📍 on a card to pin a stock so it stays visible when the list re-ranks.';
   if (!d.picks.length) {
     list.innerHTML = '<div class="card muted">No setups scoring ≥40 right now. Scanners on the Insights tab show what\'s moving.</div>';
     return;
@@ -875,8 +930,18 @@ function renderPicks(d) {
     const fund = p.fundamentals;
     const fundLine = fund
       ? `<div class="muted" style="margin-top:8px;font-size:12px">${fund.pe != null ? `${tip('pe', 'Price/Earnings')} ${fmt(fund.pe)}${fund.sectorPe != null ? ` (sector ${fmt(fund.sectorPe)})` : ''} · ` : ''}${fund.weekLow != null && fund.weekHigh != null ? `${tip('week52', '52-week range')} ₹${fmt(fund.weekLow)}–₹${fmt(fund.weekHigh)}` : ''}</div>` : '';
+    // A pinned card that would not otherwise be here has to say why, or it
+    // reads as a setup that passed the screen when it did not.
+    const pinFlag = p.pinned && p.belowCutoff
+      ? `<div class="pick-flag" data-tip="pinned-below" tabindex="0">📌 Pinned · scores ${p.score}, below the 40 cutoff</div>`
+      : p.pinned && p.outsideTop
+        ? `<div class="pick-flag" data-tip="pinned-outside" tabindex="0">📌 Pinned · outside today's top 5</div>`
+        : '';
     return `
-    <div class="card pick ${p.direction.toLowerCase()}" style="animation-delay:${i*70}ms" data-symbol="${p.symbol}">
+    <div class="card pick ${p.direction.toLowerCase()}${p.pinned ? ' is-pinned' : ''}" style="animation-delay:${i*70}ms" data-symbol="${p.symbol}">
+      <button class="pin-btn${p.pinned ? ' pinned' : ''}" data-pin="${p.symbol}"
+        title="${p.pinned ? 'Unpin ' + p.symbol : 'Pin ' + p.symbol + ' to keep it on the board'}"
+        aria-label="${p.pinned ? 'Unpin' : 'Pin'} ${p.symbol}" aria-pressed="${p.pinned ? 'true' : 'false'}">${p.pinned ? '📌' : '📍'}</button>
       <div class="pick-head">
         <span class="sym">${p.symbol}</span>
         <span class="badge action ${p.direction.toLowerCase()}">${p.direction === 'LONG' ? 'BUY' : 'SELL'}</span>
@@ -905,6 +970,7 @@ function renderPicks(d) {
         ${smaLine}
       </div>
       ${fundLine}
+      ${pinFlag}
       <div class="chart-hint">📊 Click for candlestick chart with COG &amp; volume</div>
     </div>`;
   }).join('');
@@ -912,7 +978,14 @@ function renderPicks(d) {
     setTimeout(() => countUpTo(el, Number(el.dataset.target)), i * 70 + 120);
   });
   list.querySelectorAll('.pick[data-symbol]').forEach(card => {
-    card.onclick = () => openChart(card.dataset.symbol);
+    card.onclick = e => {
+      // The pin sits inside the card, whose own click opens the chart.
+      if (e.target.closest('[data-pin]')) return;
+      openChart(card.dataset.symbol);
+    };
+  });
+  list.querySelectorAll('[data-pin]').forEach(btn => {
+    btn.onclick = e => { e.stopPropagation(); togglePin(btn.dataset.pin); };
   });
 }
 
@@ -940,12 +1013,25 @@ function renderInsights(d) {
   $('#orb-table').innerHTML = '<tr><th>Symbol</th><th>LTP</th><th>Breakout</th></tr>' +
     (d.scanners.orbBreakouts.map(s => row3(s, `<td><span class="badge ${s.orbStatus==='BREAKOUT_UP'?'long':'short'}">${s.orbStatus==='BREAKOUT_UP'?'▲ Range high':'▼ Range low'}</span></td>`)).join('') || '<tr><td class="muted" colspan="3">None yet</td></tr>');
 
-  $('#universe-table').innerHTML = '<tr><th>Symbol</th><th>LTP</th><th>Chg</th><th>Gap</th><th>VWAP</th><th>Score</th></tr>' +
-    d.universe.map(s => `<tr><td><span title="${s.real ? 'Real Kite historical data' : 'Simulated'}" style="color:var(--${s.real?'green':'muted'})">●</span> <b>${s.symbol}</b> <span class="muted" style="font-size:11px">${s.sector}</span>${s.eventToday ? ` <span class="badge short" style="font-size:10px" title="${s.eventToday}">EVENT</span>` : ''}</td>
+  // The universe table is the only place every stock is listed, so it is where
+  // you can pin one that is not currently on the picks board — otherwise a
+  // stock could only be pinned during the window it happened to be ranked.
+  $('#universe-table').innerHTML = '<tr><th>Pin</th><th>Symbol</th><th>LTP</th><th>Chg</th><th>Gap</th><th>VWAP</th><th>Score</th></tr>' +
+    d.universe.map(s => {
+      const isPinned = pinnedSymbols.includes(s.symbol);
+      return `<tr><td><button class="pin-btn${isPinned ? ' pinned' : ''}" data-pin="${s.symbol}" style="position:static"
+        title="${isPinned ? 'Unpin ' + s.symbol : 'Pin ' + s.symbol + ' to keep it on the picks board'}"
+        aria-label="${isPinned ? 'Unpin' : 'Pin'} ${s.symbol}" aria-pressed="${isPinned}">${isPinned ? '📌' : '📍'}</button></td>
+      <td><span title="${s.real ? 'Real Kite historical data' : 'Simulated'}" style="color:var(--${s.real?'green':'muted'})">●</span> <b>${s.symbol}</b> <span class="muted" style="font-size:11px">${s.sector}</span>${s.eventToday ? ` <span class="badge short" style="font-size:10px" title="${s.eventToday}">EVENT</span>` : ''}</td>
       <td>₹${fmt(s.ltp)}</td><td class="${cls(s.changePct)}">${pct(s.changePct)}</td>
       <td class="${cls(s.gapPct)}">${pct(s.gapPct)}</td>
       <td>${s.aboveVwap ? '<span class="pos">above</span>' : '<span class="neg">below</span>'}</td>
-      <td>${s.score} <span class="badge ${s.direction.toLowerCase()}" style="font-size:10px">${s.direction}</span></td></tr>`).join('');
+      <td>${s.score} <span class="badge ${s.direction.toLowerCase()}" style="font-size:10px">${s.direction}</span></td></tr>`;
+    }).join('');
+
+  $('#universe-table').querySelectorAll('[data-pin]').forEach(btn => {
+    btn.onclick = e => { e.stopPropagation(); togglePin(btn.dataset.pin); };
+  });
 }
 
 // ---------- Kite Connect ----------

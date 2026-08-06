@@ -542,7 +542,24 @@ export function buildPick(stock, ind, scored) {
  * (from Kite's live quote API) overrides LTP/change with real-time data when
  * available.
  */
-export async function generateInsights(token, liveQuotes = null) {
+/**
+ * Accepts pinned symbols as an array or a comma-separated string, and keeps
+ * only names that actually exist in the universe. Unknown symbols are dropped
+ * rather than erroring: a stale pin in someone's browser should not break the
+ * whole insights response.
+ */
+export function normalisePinned(pinned) {
+  const raw = Array.isArray(pinned) ? pinned : String(pinned || '').split(',');
+  const known = new Set(UNIVERSE.map(s => s.symbol));
+  const out = [];
+  for (const item of raw) {
+    const sym = String(item || '').trim().toUpperCase();
+    if (known.has(sym) && !out.includes(sym)) out.push(sym);
+  }
+  return out.slice(0, UNIVERSE.length);
+}
+
+export async function generateInsights(token, liveQuotes = null, options = {}) {
   const snapshots = await Promise.all(UNIVERSE.map(async stock => {
     const [real, events, fundamentals] = await Promise.all([
       fetchRealSeries(token, stock.symbol).catch(() => null),
@@ -623,11 +640,36 @@ export async function generateInsights(token, liveQuotes = null) {
   // Ranked picks: top 5 by rank score, minimum displayed score 40. The cutoff
   // stays on the integer `score` so it keeps its plain meaning ("enough signals
   // fired"); only the ordering uses the continuous rank.
-  const picks = snapshots
+  const ranked = snapshots
     .filter(s => s.scored.score >= 40)
     .sort((a, b) => b.scored.rankScore - a.scored.rankScore)
-    .slice(0, 5)
-    .map(s => buildPick(s.stock, s.ind, s.scored));
+    .slice(0, 5);
+
+  // Pinned stocks stay on the board whatever they score. The list re-ranks
+  // every minute, so a stock being watched can vanish mid-observation — which
+  // is precisely when you most want to keep seeing it. Pins are per-request
+  // (the client owns them) so this stays stateless.
+  const pinned = normalisePinned(options.pinned);
+  const pinnedSet = new Set(pinned);
+  const rankedSymbols = new Set(ranked.map(s => s.stock.symbol));
+  const pinnedExtra = pinned
+    .filter(sym => !rankedSymbols.has(sym))
+    .map(sym => snapshots.find(s => s.stock.symbol === sym))
+    .filter(Boolean);
+
+  const picks = [...ranked, ...pinnedExtra]
+    .map(s => ({
+      ...buildPick(s.stock, s.ind, s.scored),
+      pinned: pinnedSet.has(s.stock.symbol),
+      // A pinned stock held on screen despite failing the screen must say so.
+      // Without this the card looks identical to one that earned its place,
+      // which would misrepresent a 20-score stock as a setup worth taking.
+      belowCutoff: s.scored.score < 40,
+      outsideTop: !rankedSymbols.has(s.stock.symbol) && s.scored.score >= 40,
+    }))
+    // Pinned first so watched names hold a stable position instead of moving
+    // under the cursor; rank orders within each group.
+    .sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.rankScore - a.rankScore));
 
   // Market breadth
   const advances = snapshots.filter(s => s.ind.changePct > 0).length;

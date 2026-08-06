@@ -149,6 +149,114 @@
   .modal .ok { color:var(--green); font-size:13px; margin-top:10px; min-height:18px; }
   .modal .row { display:flex; gap:10px; }
   .modal .row .btn { flex:1; }
+
+  /* ---------- chart modal ---------- */
+  .pick { cursor:pointer; position:relative; }
+  .pick.is-pinned { border-color:var(--amber); }
+  .pin-btn { position:absolute; top:10px; right:10px; background:none; border:1px solid transparent;
+    border-radius:6px; cursor:pointer; font-size:15px; line-height:1; padding:4px 6px; opacity:.28;
+    transition:opacity .15s ease,border-color .15s ease,transform .12s ease; }
+  .pick:hover .pin-btn { opacity:.75; }
+  .pin-btn:hover { opacity:1 !important; border-color:var(--amber); transform:scale(1.1); }
+  .pin-btn.pinned { opacity:1; }
+  .pick-flag { display:inline-block; font-size:11px; padding:3px 9px; border-radius:999px; margin-top:8px;
+    border:1px solid var(--amber); color:var(--amber); }
+  .pinned-note { font-size:12px; color:var(--muted); margin:0 0 10px; }
+  .pinned-note b { color:var(--amber); }
+
+  /* ---------- live ticks + alerts ---------- */
+  @keyframes flashUp { 0%{background:rgba(63,185,80,.28)} 100%{background:transparent} }
+  @keyframes flashDown { 0%{background:rgba(248,81,73,.28)} 100%{background:transparent} }
+  .tick-up { animation:flashUp .6s ease-out; border-radius:4px; }
+  .tick-down { animation:flashDown .6s ease-out; border-radius:4px; }
+  #toasts { position:fixed; right:18px; bottom:18px; z-index:200; display:flex; flex-direction:column;
+    gap:10px; max-width:340px; }
+  .toast { background:var(--panel); border:1px solid var(--border); border-left:3px solid var(--blue);
+    border-radius:9px; padding:12px 14px; box-shadow:0 12px 34px rgba(0,0,0,.4);
+    animation:riseIn .28s cubic-bezier(.22,1,.36,1) both; cursor:pointer; }
+  .toast.hit-t1, .toast.hit-t2 { border-left-color:var(--green); }
+  .toast.hit-sl { border-left-color:var(--red); }
+  .toast.entry { border-left-color:var(--amber); }
+  .toast .t-title { font-weight:600; font-size:13px; margin-bottom:2px; }
+  .toast .t-body { font-size:12px; color:var(--muted); line-height:1.5; }
+  .toast .t-time { font-size:10px; color:var(--muted); margin-top:4px; }
+  .live-chip { display:inline-flex; align-items:center; gap:6px; }
+  .alert-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px;
+    color:var(--muted); margin:0 0 10px; }
+  .alert-bar button { font-size:12px; padding:4px 11px; border-radius:999px; cursor:pointer;
+    border:1px solid var(--border); background:var(--bg); color:var(--muted); transition:all .15s ease; }
+  .alert-bar button:hover { border-color:var(--blue); color:var(--text); }
+  .alert-bar button.on { color:var(--green); border-color:currentColor; }
+  .pick .chart-hint { font-size:11px; color:var(--muted); margin-top:8px; opacity:0; transition:opacity .18s ease; }
+  .pick:hover .chart-hint { opacity:1; }
+  .modal.chart-modal { width:min(1100px, 95vw); padding:18px 20px 14px; }
+  .chart-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .chart-head .sym { font-size:18px; font-weight:600; }
+  .chart-head .spacer { flex:1; }
+  .chart-close { background:none; border:1px solid var(--border); color:var(--muted); border-radius:6px;
+    cursor:pointer; font-size:16px; line-height:1; padding:5px 10px; transition:color .15s ease,border-color .15s ease; }
+  .chart-close:hover { color:var(--text); border-color:var(--blue); }
+  .study-bar { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .study-toggle { font-size:12px; padding:5px 11px; border-radius:999px; cursor:pointer; user-select:none;
+    border:1px solid var(--border); background:var(--bg); color:var(--muted); transition:all .15s ease; }
+  .study-toggle:hover { border-color:var(--blue); color:var(--text); }
+  .study-toggle.on { color:var(--text); border-color:currentColor; }
+  .study-toggle.on[data-study="regression"] { color:#a371f7; }
+  .study-toggle.on[data-study="volumeCog"] { color:#58a6ff; }
+  .study-toggle.on[data-study="poc"] { color:#d29922; }
+  .study-toggle.on[data-study="volume"] { color:#8b949e; }
+  .study-toggle.on[data-study="levels"] { color:#3fb950; }
+  .study-toggle.on[data-study="cog"] { color:#f778ba; }
+  #price-chart { height:380px; width:100%; }
+  #cog-chart { height:130px; width:100%; margin-top:2px; }
+  .cog-label { font-size:11px; color:var(--muted); margin:6px 0 0; }
+  .chart-foot { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:var(--muted); margin-top:8px; }
+  .chart-loading { height:510px; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:13px; }
+
+  /* ---------- explanatory tooltips ---------- */
+  [data-tip] { cursor:help; border-bottom:1px dotted var(--muted); }
+  #tooltip {
+    position:fixed; z-index:100; max-width:340px; pointer-events:none; opacity:0;
+    background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:8px;
+    padding:10px 13px; font-size:12px; line-height:1.55; box-shadow:0 10px 30px rgba(0,0,0,.35);
+    transition:opacity .13s ease; }
+  #tooltip.show { opacity:1; }
+  #tooltip .tip-title { font-weight:600; margin-bottom:3px; }
+  #tooltip .tip-full { color:var(--blue); font-size:11px; margin-bottom:5px; }
+  #tooltip .tip-body { color:var(--muted); }
+  #tooltip table { width:100%; border-collapse:collapse; margin-top:4px; }
+  #tooltip td { border:none; padding:2px 0; font-size:12px; vertical-align:top; }
+  #tooltip td.pts { text-align:right; padding-left:12px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  #tooltip tr.total td { border-top:1px solid var(--border); padding-top:5px; font-weight:600; color:var(--text); }
+  #tooltip tr.muted-row td { color:var(--muted); }
+
+  /* ---------- guide ---------- */
+  .guide-intro { max-width:820px; margin-bottom:18px; }
+  .guide-sec { max-width:820px; }
+  .guide-sec h2 { font-size:16px; margin:26px 0 8px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+  .guide-sec h3 { font-size:14px; margin:16px 0 4px; color:var(--blue); }
+  .guide-sec p { margin:6px 0; color:var(--muted); line-height:1.65; }
+  .guide-sec ul { margin:6px 0; padding-left:20px; color:var(--muted); line-height:1.65; }
+  .guide-sec li { margin:4px 0; }
+  .guide-sec strong { color:var(--text); font-weight:600; }
+  .guide-sec code { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:12px; }
+  .signal-table { width:100%; margin:10px 0; }
+  .signal-table td { padding:7px 8px; border-bottom:1px solid var(--border); vertical-align:top; font-size:13px; }
+  .signal-table td.w { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; font-weight:600; }
+  .signal-table td.w.plus { color:var(--green); } .signal-table td.w.minus { color:var(--red); }
+  .varsity { background:var(--panel); border:1px solid var(--border); border-left:3px solid var(--blue);
+    border-radius:8px; padding:14px 16px; margin:18px 0; max-width:820px; }
+  .varsity h3 { margin:0 0 6px; font-size:14px; }
+  .varsity p { margin:0 0 10px; font-size:12px; color:var(--muted); }
+  .varsity-links { display:flex; flex-wrap:wrap; gap:8px; }
+  .varsity-links a { font-size:12px; padding:5px 11px; border-radius:999px; border:1px solid var(--border);
+    color:var(--blue); text-decoration:none; transition:border-color .15s ease,transform .12s ease; }
+  .varsity-links a:hover { border-color:var(--blue); transform:translateY(-1px); }
+  .glossary-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; margin-top:10px; }
+  .glossary-item { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:11px 13px; }
+  .glossary-item .g-term { font-weight:600; font-size:13px; }
+  .glossary-item .g-full { color:var(--blue); font-size:11px; margin:1px 0 5px; }
+  .glossary-item .g-body { color:var(--muted); font-size:12px; line-height:1.55; }
   .flash { animation:tickFlash .8s ease; }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
@@ -173,6 +281,7 @@
 <nav>
   <button data-tab="picks" class="active">📈 Today's Picks</button>
   <button data-tab="insights">🔍 Market Insights</button>
+  <button data-tab="guide">📚 Guide</button>
   <button data-tab="kite">🔗 Kite Connect</button>
 </nav>
 
@@ -180,6 +289,12 @@
   <!-- ============ PICKS TAB ============ -->
   <section id="tab-picks">
     <p class="src-note" id="picks-source"></p>
+    <p class="alert-bar" id="alert-bar">
+      <span id="live-status">○ Live ticks off</span>
+      <button id="alerts-toggle">🔔 Enable alerts</button>
+      <span id="alert-summary"></span>
+    </p>
+    <p class="pinned-note" id="pinned-note"></p>
     <div class="grid" id="picks-list"></div>
     <div class="disclaimer">⚠️ Algorithmic screening for educational purposes only — not investment advice. Levels are indicator-derived references, not recommendations. Consult a SEBI-registered advisor before trading.</div>
   </section>
@@ -198,6 +313,11 @@
   </section>
 
   <!-- ============ KITE TAB ============ -->
+  <!-- ============ GUIDE TAB ============ -->
+  <section id="tab-guide" class="hidden">
+    <div id="guide-content"></div>
+  </section>
+
   <section id="tab-kite" class="hidden">
     <div class="grid cols-2">
       <div class="card">
@@ -207,9 +327,16 @@
         <input id="kite-key" placeholder="Your Kite Connect API key" autocomplete="off">
         <label for="kite-secret">API Secret</label>
         <input id="kite-secret" type="password" placeholder="Your Kite Connect API secret" autocomplete="off">
-        <p class="muted" style="font-size:12px">Credentials are held in this local server's memory only — never persisted or sent anywhere except api.kite.trade.</p>
-        <button class="btn" id="kite-save">Save & get login link</button>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer" id="kite-remember-row">
+          <input type="checkbox" id="kite-remember" checked style="width:auto;margin:0">
+          <span>Remember on this server</span>
+        </label>
+        <p class="muted" style="font-size:12px" id="kite-storage-note"></p>
+        <button class="btn" id="kite-save">Save &amp; get login link</button>
+        <button class="btn secondary" id="kite-edit" style="display:none">Edit credentials</button>
+        <button class="btn secondary" id="kite-cancel-edit" style="display:none">Cancel</button>
         <button class="btn" id="kite-login" disabled>Login with Kite →</button>
+        <button class="btn secondary" id="kite-forget" style="display:none">Forget saved credentials</button>
         <button class="btn secondary" id="kite-disconnect" style="display:none">Disconnect</button>
       </div>
       <div class="card">
@@ -231,6 +358,41 @@
   </section>
 </main>
 
+<div id="toasts"></div>
+
+<div class="modal-overlay hidden" id="chart-modal">
+  <div class="modal chart-modal">
+    <div class="chart-head">
+      <span class="sym" id="chart-sym"></span>
+      <span class="badge" id="chart-dir"></span>
+      <span class="badge info" id="chart-real"></span>
+      <span class="muted" id="chart-name"></span>
+      <span class="spacer"></span>
+      <select id="chart-interval" style="width:auto;margin:0;padding:5px 8px;font-size:12px">
+        <option value="minute" selected>1 min</option>
+        <option value="5minute">5 min</option>
+        <option value="15minute">15 min</option>
+        <option value="60minute">1 hour</option>
+      </select>
+      <button class="chart-close" id="chart-close" title="Close (Esc)">✕</button>
+    </div>
+    <div class="study-bar" id="study-bar">
+      <span class="study-toggle on" data-study="volume" data-tip="volume" tabindex="0">Volume</span>
+      <span class="study-toggle on" data-study="cog" data-tip="cog" tabindex="0">Center of Gravity</span>
+      <span class="study-toggle on" data-study="regression" data-tip="regression" tabindex="0">Regression channel</span>
+      <span class="study-toggle on" data-study="volumeCog" data-tip="volumecog" tabindex="0">Volume Center of Gravity</span>
+      <span class="study-toggle on" data-study="poc" data-tip="poc" tabindex="0">Point of Control</span>
+      <span class="study-toggle on" data-study="levels" data-tip="risk" tabindex="0">Trade levels</span>
+    </div>
+    <div id="chart-body">
+      <div id="price-chart"></div>
+      <p class="cog-label" id="cog-label">Ehlers Center of Gravity</p>
+      <div id="cog-chart"></div>
+    </div>
+    <div class="chart-foot" id="chart-foot"></div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="pw-modal">
   <form class="modal" id="pw-form">
     <h2>Change password</h2>
@@ -250,11 +412,330 @@
   </form>
 </div>
 
+<script src="/vendor/lightweight-charts.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const fmt = n => n == null ? '—' : Number(n).toLocaleString('en-IN', {maximumFractionDigits:2});
 const pct = n => (n > 0 ? '+' : '') + fmt(n) + '%';
 const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'neu';
+
+// ---------- glossary + tooltips ----------
+//
+// Every abbreviation on this page is jargon to someone. Each term carries its
+// expansion and a plain-language explanation of what it means *and* why the
+// screener cares — a definition alone ("ATR = Average True Range") does not
+// help anyone decide whether to act on the number next to it.
+const GLOSSARY = {
+  vwap: ['VWAP', 'Volume Weighted Average Price',
+    'The average price weighted by how much traded at each level, reset each session. It is where the average participant is filled, so institutions use it as a benchmark. Price above VWAP means buyers are in control on the day; below means sellers are.'],
+  pivot: ['Pivot', 'Pivot Point',
+    'Yesterday\'s high, low and close averaged into one level. Widely watched, so it often acts as the day\'s dividing line between bullish and bearish.'],
+  support1: ['Support 1', 'First Support Level (S1)',
+    'The first price below the pivot where buying has historically appeared. Falling through it suggests the move down has further to run.'],
+  resistance1: ['Resistance 1', 'First Resistance Level (R1)',
+    'The first price above the pivot where selling has historically appeared. A long target beyond it is optimistic — the level has to break first.'],
+  atr: ['ATR', 'Average True Range',
+    'The average distance price travels in one candle, including gaps. It sizes the stop: a stop closer than ATR sits inside normal noise and gets hit by randomness rather than by being wrong.'],
+  orb: ['Opening range', 'Opening Range Breakout (ORB)',
+    'The high and low of the first 15 minutes. Breaking out of that range on volume is one of the more reliable intraday continuation signals, which is why it is the highest-weighted signal here (25 points).'],
+  sma: ['SMA', 'Simple Moving Average',
+    'The average closing price over the last N days. Price above a rising 20-day and 50-day average is the textbook definition of an uptrend; the 200-day is the long-term trend line.'],
+  ltp: ['LTP', 'Last Traded Price',
+    'The price of the most recent trade — the live quote when Kite is connected.'],
+  relvolume: ['Relative volume', 'Relative Volume (RVOL)',
+    'Today\'s volume compared with this stock\'s own recent average. Above 1.3x means unusual participation, which is what separates a real move from drift on thin trade.'],
+  momentum: ['30-min momentum', null,
+    'Percentage price change over the last 30 minutes. Confirms the move is still going rather than having already finished.'],
+  gap: ['Gap', 'Gap Percentage',
+    'How far today\'s open sat above or below yesterday\'s close. A gap that holds and extends signals conviction; one that fills usually signals the opposite.'],
+  rangeposition: ['Range position', null,
+    'Where the current price sits between the day\'s low (0%) and high (100%). Near the high is strength; near the low is weakness.'],
+  spread: ['Spread', 'Bid-Ask Spread',
+    'The gap between the best buy and best sell price — your instant cost to enter and exit. Above 0.15% it starts eating the edge, so this screener penalises it by 15 points.'],
+  bidask: ['Bid / Ask', 'Best Bid and Best Offer',
+    'The highest price a buyer will pay and the lowest a seller will accept, right now. You buy at the ask and sell at the bid.'],
+  imbalance: ['Book imbalance', 'Order Book Imbalance',
+    'How lopsided the pending buy versus sell orders are. Positive means more resting demand than supply. It is a live-only signal — it needs a connected Kite feed.'],
+  circuit: ['Circuit headroom', 'Distance to Circuit Limit',
+    'How far price is from the exchange-mandated daily limit where trading halts. Close to it, you risk being frozen in a position you cannot exit — a 20-point penalty here.'],
+  pe: ['P/E', 'Price to Earnings Ratio',
+    'Share price divided by earnings per share. Shown for context against the sector average; it is a valuation measure and has little bearing on an intraday move.'],
+  week52: ['52-week range', null,
+    'The lowest and highest price over the past year. Shows where today sits in the longer picture.'],
+  risk: ['R', 'R-multiple (Risk Unit)',
+    'One R is the distance from entry to stop — what you lose if wrong. Target 1 at 1R returns that amount; Target 2 at 2R returns twice it. Thinking in R keeps position sizes comparable across stocks.'],
+  score: ['Setup score', null,
+    'The sum of the technical signals that fired, out of 100. Only setups scoring 40 or more are shown. Hover the number itself for the exact breakdown.'],
+  relstrength: ['Relative strength', null,
+    'This stock\'s change minus the market\'s average change. It separates a strong stock from a strong market: up 0.5% on a day the market is up 2% is actually lagging badly.'],
+  sentiment: ['Sentiment', 'Market Breadth Sentiment',
+    'Derived from how many stocks are advancing versus declining, not from any single index. Broad participation is a more honest read on the day than a handful of heavyweights.'],
+  advances: ['Advances', null, 'How many stocks in the tracked universe are up on the day.'],
+  declines: ['Declines', null, 'How many stocks in the tracked universe are down on the day.'],
+  cog: ['COG', 'Center of Gravity (Ehlers)',
+    'The balance point of recent prices, weighted by how far back each sits. It turns almost without lag, which makes it early but twitchy — the signal line crossover is the usual read.'],
+  regression: ['Regression channel', 'Linear Regression Channel',
+    'A best-fit line through recent closes with bands two standard deviations either side. The line is the trend; the bands show how far price normally strays before returning.'],
+  volumecog: ['Volume COG', 'Volume-Weighted Center of Gravity',
+    'The price level the session\'s traded value balances around — a running VWAP over the candles shown.'],
+  poc: ['POC', 'Point of Control',
+    'The single price with the most traded volume this session. It tends to act as a magnet, since it is where the most positions were opened.'],
+  volume: ['Volume', null, 'Shares traded per candle. Confirms whether a price move had real participation behind it.'],
+  entry: ['Entry', 'Reference Entry Price',
+    'The current price, used as the reference the stop and targets are calculated from. It is not a recommendation to buy here.'],
+  stoploss: ['Stop loss', null,
+    'Where the setup is proven wrong, set 1.5x ATR from entry so it sits outside normal noise. Exiting here caps the loss at 1R.'],
+  target1: ['Target 1', null, 'The 1R level. Booking part of the position here makes the remainder risk-free.'],
+  target2: ['Target 2', null, 'The 2R level — twice the risk taken. Flagged when a support or resistance level sits in the way.'],
+  real: ['Real vs simulated', null,
+    'REAL means genuine Kite historical candles. SIM means a deterministic simulator stood in because Kite is not connected or the Historical Data add-on is not enabled — plausible-looking, but not the market. Never trade from a SIM chart.'],
+  datasource: ['Data source', null,
+    'Whether quotes are coming live from Kite Connect or from the offline simulator.'],
+  'pinned-below': ['Pinned, below cutoff', null,
+    'You pinned this stock, so it stays on the board — but it scores under 40 and would not otherwise be shown. It is here for continuity of watching, not because the screener rates the setup.'],
+  'pinned-outside': ['Pinned, outside top 5', null,
+    'You pinned this stock. It clears the 40-point cutoff but is not among today\'s five highest-ranked setups, so it would normally be off the board.'],
+  atrband: ['Tradeable volatility band', null,
+    'The range of volatility that suits an intraday hold, anchored to the median of today\'s universe rather than a fixed percentage. Too quiet and the stop sits inside the noise; too wild and a 2R target is out of reach within the session.'],
+};
+
+const tooltipEl = document.createElement('div');
+tooltipEl.id = 'tooltip';
+document.body.appendChild(tooltipEl);
+
+function tipHtml(key) {
+  // A `data-tip` may name a glossary term or carry literal HTML, so cards can
+  // explain a computed value the glossary cannot know about.
+  const g = GLOSSARY[key];
+  if (!g) return key;
+  const [title, full, body] = g;
+  return `<div class="tip-title">${title}</div>${full ? `<div class="tip-full">${full}</div>` : ''}<div class="tip-body">${body}</div>`;
+}
+
+function showTip(target) {
+  const key = target.dataset.tip;
+  tooltipEl.innerHTML = target.dataset.tipHtml || tipHtml(key);
+  tooltipEl.classList.add('show');
+  const r = target.getBoundingClientRect();
+  const t = tooltipEl.getBoundingClientRect();
+  // Flip above when there is no room below, and keep it inside the viewport
+  // horizontally — otherwise tooltips on the rightmost card render off-screen.
+  let top = r.bottom + 8;
+  if (top + t.height > window.innerHeight - 8) top = Math.max(8, r.top - t.height - 8);
+  let left = Math.min(Math.max(8, r.left), window.innerWidth - t.width - 8);
+  tooltipEl.style.top = top + 'px';
+  tooltipEl.style.left = left + 'px';
+}
+
+function hideTip() { tooltipEl.classList.remove('show'); }
+
+document.addEventListener('mouseover', e => {
+  const el = e.target.closest('[data-tip]');
+  if (el) showTip(el);
+});
+document.addEventListener('mouseout', e => {
+  if (e.target.closest('[data-tip]')) hideTip();
+});
+// Keyboard parity: tooltips that only appear on hover are invisible to anyone
+// tabbing through the page.
+document.addEventListener('focusin', e => {
+  const el = e.target.closest('[data-tip]');
+  if (el) showTip(el);
+});
+document.addEventListener('focusout', hideTip);
+document.addEventListener('scroll', hideTip, true);
+
+/** Shorthand for a glossary-linked label. */
+const tip = (key, text) => `<span data-tip="${key}" tabindex="0">${text ?? GLOSSARY[key][0]}</span>`;
+
+/**
+ * The score tooltip: which signals fired, what each was worth, and how they
+ * total. Only the traded side's signals contributed, so the rest are filtered
+ * out — showing a LONG card's short-side points would not add up.
+ */
+function scoreTipHtml(p) {
+  const rows = (p.breakdown || []).filter(b => b.side === p.direction || b.side === 'BOTH');
+  const info = (p.breakdown || []).filter(b => b.side === 'INFO');
+  if (!rows.length) return `<div class="tip-title">Setup score ${p.score}/100</div><div class="tip-body">No individual signals recorded.</div>`;
+
+  const line = b => `<tr${b.points < 0 ? ' class="muted-row"' : ''}><td>${b.label}</td><td class="pts">${b.points > 0 ? '+' : ''}${b.points}</td></tr>`;
+  // The clamp only matters when it actually changed the number; showing
+  // "capped at 100" on a score of 70 would be noise.
+  const clamped = p.rawTotal != null && p.rawTotal !== p.score;
+  return `
+    <div class="tip-title">Why this scores ${p.score}/100</div>
+    <div class="tip-full">${p.direction === 'LONG' ? 'BUY' : 'SELL'} side signals that fired</div>
+    <table>
+      ${rows.map(line).join('')}
+      ${clamped ? `<tr class="muted-row"><td>Raw total ${p.rawTotal}, ${p.rawTotal > 100 ? 'capped at 100' : 'floored at 0'}</td><td class="pts"></td></tr>` : ''}
+      <tr class="total"><td>Setup score</td><td class="pts">${p.score}/100</td></tr>
+    </table>
+    ${info.length ? `<div class="tip-body" style="margin-top:6px">${info.map(b => b.label).join('<br>')} — noted, deliberately not scored: event-day moves are unpredictable.</div>` : ''}
+    <div class="tip-body" style="margin-top:6px">Shown only if 40 or more. Ranked among ties by relative strength and volume.</div>`;
+}
+
+// ---------- guide ----------
+//
+// Original explanations, not reproduced from anywhere. Zerodha Varsity is the
+// obvious reference for this material, but it is published "all rights
+// reserved, reproduction not permitted", so this guide explains the concepts in
+// its own words — anchored to what *this* screener actually computes, which a
+// general course could not do — and links out to Varsity for the full course.
+const VARSITY_MODULES = [
+  ['Technical Analysis', 'https://zerodha.com/varsity/module/technical-analysis/',
+    'Candlesticks, support and resistance, moving averages, indicators.'],
+  ['Risk Management & Trading Psychology', 'https://zerodha.com/varsity/module/risk-management/',
+    'Position sizing, stop losses, and the behavioural side of trading.'],
+  ['Trading Systems', 'https://zerodha.com/varsity/module/trading-systems/',
+    'Building and backtesting a rule-based system rather than trading on feel.'],
+  ['Introduction to Stock Markets', 'https://zerodha.com/varsity/module/introduction-to-stock-markets/',
+    'How exchanges, orders, settlement and market participants work.'],
+  ['Markets and Taxation', 'https://zerodha.com/varsity/module/markets-and-taxation/',
+    'How intraday gains are taxed in India, and what counts as speculative income.'],
+  ['Innerworth — Mind over Markets', 'https://zerodha.com/varsity/module/innerworth/',
+    'Discipline, patience and the psychology of losing trades.'],
+];
+
+const GUIDE = [
+  ['How to read a pick', `
+    <p>Each card on <strong>Today's Picks</strong> is one stock that passed the screen, with everything the
+    screener knows about it. Read it in this order:</p>
+    <h3>1. Direction — BUY or SELL</h3>
+    <p>Whether the signals point long or short. The screener totals the evidence for each side separately and
+    shows whichever side wins. A <strong>SELL</strong> pick means the setup favours a short, not that you should
+    sell shares you hold.</p>
+    <h3>2. Setup score, out of 100</h3>
+    <p>The sum of the signals that fired on the winning side. Hover the score for the exact arithmetic — which
+    signals fired and what each contributed. Only setups scoring <strong>40 or more</strong> appear at all.
+    A high score means many independent signals agree, not that the trade will work.</p>
+    <h3>3. REAL or SIM</h3>
+    <p>The single most important badge on the card. <strong>REAL</strong> means genuine Kite historical candles.
+    <strong>SIM</strong> means a simulator produced the numbers because Kite is not connected — the prices are
+    plausible but fictional. Never act on a SIM card.</p>
+    <h3>4. The trade plan</h3>
+    <p>Entry, stop loss and two targets, all derived from Average True Range rather than opinion. The stop sits
+    1.5&times;ATR from entry so it is outside normal noise. Target 1 is the same distance the other way (1R);
+    Target 2 is twice it (2R).</p>
+    <h3>5. Click the card</h3>
+    <p>Opens the candlestick chart with volume and the Center of Gravity studies, and draws the entry, stop and
+    targets as lines so you can see the plan against the price action it came from.</p>`],
+
+  ['What the screener looks for', `
+    <p>Nine signals, each worth a fixed number of points. They were chosen to be reasonably independent — a
+    setup scoring well on several is stronger than one that trips the same idea repeatedly.</p>
+    <table class="signal-table">
+      <tr><td><strong>Opening range breakout</strong><br><span class="muted">Price breaks the first 15 minutes' high or low.</span></td><td class="w plus">+25</td></tr>
+      <tr><td><strong>VWAP with relative strength</strong><br><span class="muted">Above VWAP <em>and</em> outperforming the market, or below and underperforming.</span></td><td class="w plus">+20</td></tr>
+      <tr><td><strong>30-minute momentum</strong><br><span class="muted">The move is still going, not already finished.</span></td><td class="w plus">+15</td></tr>
+      <tr><td><strong>Volume surge</strong><br><span class="muted">Above 1.3&times; the session average, credited to whichever side the stock is moving relative to its peers.</span></td><td class="w plus">+15</td></tr>
+      <tr><td><strong>Gap holding and extending</strong><br><span class="muted">An opening gap that kept going rather than filling.</span></td><td class="w plus">+15</td></tr>
+      <tr><td><strong>Position in the day's range</strong><br><span class="muted">Near the high for longs, near the low for shorts.</span></td><td class="w plus">+10</td></tr>
+      <tr><td><strong>Moving average trend</strong><br><span class="muted">Price above a rising 20 and 50-day average, or below a falling one.</span></td><td class="w plus">+10</td></tr>
+      <tr><td><strong>Order book imbalance</strong> <span class="muted">(live only)</span><br><span class="muted">Resting orders leaning meaningfully one way.</span></td><td class="w plus">+10</td></tr>
+      <tr><td><strong>Wide spread</strong><br><span class="muted">Above 0.15% — your cost to get in and out eats the edge.</span></td><td class="w minus">−15</td></tr>
+      <tr><td><strong>Near circuit limit</strong><br><span class="muted">Risk of being frozen in a position you cannot exit.</span></td><td class="w minus">−20</td></tr>
+      <tr><td><strong>Unsuitable volatility</strong><br><span class="muted">Too quiet to place a sane stop, or too wild to reach a 2R target.</span></td><td class="w minus">up to −15</td></tr>
+    </table>
+    <p>A corporate event on the day is shown but deliberately <strong>not scored</strong>: earnings and
+    announcements move prices for reasons the technicals cannot see, in either direction.</p>`],
+
+  ['Why relative strength matters', `
+    <p>The screener judges each stock against the others available to trade today, not against fixed thresholds.
+    This is the difference between a strong stock and a strong market.</p>
+    <p>If the market is up 2% and a stock is up 0.5%, every naive "is it positive?" test passes — while the stock
+    is in fact <strong>lagging badly</strong>. Money moved into that name less eagerly than into everything else.
+    Conversely, a stock down 0.5% on a day the market is down 2% is showing genuine strength: buyers defended it
+    while everything around it fell.</p>
+    <p>So the card shows both the raw day change and, next to it, <strong>the change relative to the market</strong>.
+    The relative figure is what the scoring uses.</p>`],
+
+  ['Risk, and the R-multiple', `
+    <p><strong>One R is what you lose if you are wrong</strong> — the distance from entry to stop, times your
+    position size. Everything else is measured in multiples of it. This is the single most useful habit in the
+    guide.</p>
+    <p>Thinking in R makes trades comparable. A ₹4 stop on a ₹400 stock and a ₹120 stop on a ₹12,000 stock are
+    the same trade if you size them so both risk the same rupees. Without it, position size drifts with share
+    price and you end up risking wildly different amounts without noticing.</p>
+    <h3>The 2% rule the card uses</h3>
+    <p>The suggested quantity on each card risks <strong>2% of capital</strong> on the stop. On ₹1,00,000 that is
+    ₹2,000 per trade — enough that a good run matters, small enough that a bad run does not end the account.
+    Ten consecutive losses, which will happen eventually, costs about 18% rather than everything.</p>
+    <h3>Why Target 1 is at 1R</h3>
+    <p>Booking part of the position at 1R and moving the stop to entry makes the rest of the trade free: the
+    worst case from that point is breakeven. It caps the upside, and that is the trade-off.</p>
+    <p>Target 2 is flagged when a support or resistance level sits between entry and the target — a 2R target
+    beyond a level everyone is watching is optimistic, because the level has to break first.</p>`],
+
+  ['Reading the chart', `
+    <p>Clicking a pick opens 1-minute candles with four studies. Each answers a different question.</p>
+    <h3>Volume</h3>
+    <p>Did the move have participation behind it? A breakout on ordinary volume is much weaker evidence than the
+    same breakout on twice the usual trade.</p>
+    <h3>Center of Gravity</h3>
+    <p>The balance point of recent prices, weighted by how far back each one sits — it tips as recent prices
+    grow heavy. It turns almost without lag, which makes it early but twitchy; the usual read is the crossover
+    of the oscillator and its signal line, not the raw value. Its numbers are small because it measures
+    <em>relative</em> dispersion; the shape is what matters, and the pane scales itself.</p>
+    <h3>Regression channel</h3>
+    <p>A best-fit line through recent closes with bands two standard deviations either side. The line is the
+    trend; the bands show how far price normally strays before coming back. Price riding the upper band in an
+    uptrend is strength, not an automatic sell.</p>
+    <h3>Volume Center of Gravity and Point of Control</h3>
+    <p>Where the session's traded value actually concentrated. The POC — the single most-traded price — tends to
+    act as a magnet, because it is where the most positions were opened and therefore where the most people have
+    a reason to defend or exit.</p>`],
+
+  ['What this tool will not do for you', `
+    <p>A screener finds candidates. It does not decide, and it is wrong regularly.</p>
+    <ul>
+      <li><strong>A high score is not a probability.</strong> It counts agreeing signals. Several correlated
+      signals can all fire on the same underlying move and still be wrong together.</li>
+      <li><strong>The levels are arithmetic, not advice.</strong> Stop and targets come from ATR. Nothing in the
+      calculation knows about news, liquidity at your size, or what you can afford to lose.</li>
+      <li><strong>Simulated data is fiction.</strong> If the badge says SIM, the numbers are internally
+      consistent and completely made up. Check it before anything else.</li>
+      <li><strong>Costs are not modelled.</strong> Brokerage, STT, exchange fees, GST and slippage all come out
+      of the result and are not in any number shown here.</li>
+      <li><strong>Intraday is taxed as speculative income</strong> in India, at your slab rate. That changes what
+      a winning year is actually worth.</li>
+    </ul>
+    <p>This is algorithmic screening for educational purposes. It is not investment advice, and nobody here is a
+    SEBI-registered advisor.</p>`],
+];
+
+function renderGuide() {
+  const sections = GUIDE.map(([title, body]) =>
+    `<div class="guide-sec"><h2>${title}</h2>${body}</div>`).join('');
+
+  const glossary = Object.entries(GLOSSARY).map(([, [term, full, body]]) =>
+    `<div class="glossary-item"><div class="g-term">${term}</div>${full ? `<div class="g-full">${full}</div>` : ''}<div class="g-body">${body}</div></div>`).join('');
+
+  $('#guide-content').innerHTML = `
+    <div class="card guide-intro">
+      <h3 style="margin-top:0">Reading this app</h3>
+      <p class="muted" style="margin:0">Everything below explains what the numbers on the other tabs mean and how
+      they are calculated. Hover any dotted term anywhere in the app for the short version.</p>
+    </div>
+    ${sections}
+    <div class="varsity">
+      <h3>Going deeper — Zerodha Varsity</h3>
+      <p>Varsity is the best free course on Indian markets there is. This guide explains what <em>this app</em>
+      computes; Varsity teaches the subject properly. Its material is copyrighted and not reproduced here, so
+      these link straight to the source.</p>
+      <div class="varsity-links">
+        ${VARSITY_MODULES.map(([name, url, blurb]) =>
+          `<a href="${url}" target="_blank" rel="noopener noreferrer" data-tip="varsity-${name}"
+             data-tip-html="<div class='tip-title'>${name}</div><div class='tip-body'>${blurb}</div>">${name} ↗</a>`).join('')}
+      </div>
+    </div>
+    <div class="guide-sec">
+      <h2>Glossary</h2>
+      <p>Every term the app uses, in one place.</p>
+      <div class="glossary-grid">${glossary}</div>
+    </div>
+    <div class="disclaimer">⚠️ Educational content about how this screener works. Not investment advice, and not
+    affiliated with or endorsed by Zerodha. Consult a SEBI-registered advisor before trading.</div>`;
+}
 
 // ---------- tabs ----------
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
@@ -293,7 +774,23 @@ $('#theme-btn').onclick = () => {
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('theme', next);
   $('#theme-btn').textContent = next === 'dark' ? '☀️ Light' : '🌙 Dark';
+  rethemeCharts();
 };
+
+// The charts paint their own background and text, so they do not inherit the
+// CSS variable swap the rest of the page gets — they have to be told.
+function rethemeCharts() {
+  if (!charts) return;
+  const t = chartTheme();
+  for (const c of [charts.price, charts.cog]) {
+    c.applyOptions({
+      layout: { background: { color: t.bg }, textColor: t.text },
+      grid: { vertLines: { color: t.grid }, horzLines: { color: t.grid } },
+      rightPriceScale: { borderColor: t.border },
+      timeScale: { borderColor: t.border },
+    });
+  }
+}
 
 // ---------- api helper ----------
 const api = (url, opts = {}) => fetch(url, { ...opts, credentials: 'include' });
@@ -366,12 +863,47 @@ function skeletonBreadth() {
     `<div class="card skel skel-card" style="height:76px;animation-delay:${i*80}ms"></div>`).join('');
 }
 
+// ---------- pinned stocks ----------
+//
+// The picks list re-ranks every 60 seconds, so a stock being watched can drop
+// off mid-observation. Pins hold it on the board regardless of score. They live
+// in localStorage and ride along on each request, which keeps the server
+// stateless — the cost is that pins are per-browser, not per-account.
+let pinnedSymbols = [];
+try { pinnedSymbols = JSON.parse(localStorage.getItem('pinnedSymbols') || '[]'); } catch { pinnedSymbols = []; }
+
+function savePins() {
+  localStorage.setItem('pinnedSymbols', JSON.stringify(pinnedSymbols));
+}
+
+function togglePin(symbol) {
+  const i = pinnedSymbols.indexOf(symbol);
+  if (i >= 0) pinnedSymbols.splice(i, 1); else pinnedSymbols.push(symbol);
+  savePins();
+  // Reflect the click straight away against the data already held. The next
+  // load is authoritative — a newly pinned stock may not be in `latest.picks`
+  // at all, and only the server can build its card — but a pin button that
+  // takes ten seconds to change state reads as broken.
+  if (latest?.picks) {
+    for (const p of latest.picks) p.pinned = pinnedSymbols.includes(p.symbol);
+    // A card that was only on the board because it was pinned goes as soon as
+    // the pin does — leaving it until the next load would show a below-cutoff
+    // stock with no pin flag explaining why it is there.
+    latest.picks = latest.picks.filter(p => p.pinned || !(p.belowCutoff || p.outsideTop));
+    latest.picks.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.rankScore - a.rankScore));
+    renderPicks(latest);
+    renderInsights(latest);
+  }
+  loadInsights();
+}
+
 async function loadInsights() {
   if (!insightsLoadedOnce) {
     $('#picks-list').innerHTML = skeletonPicks();
     $('#breadth-cards').innerHTML = skeletonBreadth();
   }
-  const r = await api('/api/insights');
+  const q = pinnedSymbols.length ? `?pinned=${encodeURIComponent(pinnedSymbols.join(','))}` : '';
+  const r = await api('/api/insights' + q);
   if (r.status === 401) { location.href = '/login.html'; return; }
   const data = await r.json();
   latest = data;
@@ -400,6 +932,10 @@ function renderPicks(d) {
     : '🟡 Simulated data (connect Kite for live quotes) · generated ' + new Date(d.generatedAt).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata'}) + ' IST';
 
   const list = $('#picks-list');
+  const pinnedCount = d.picks.filter(p => p.pinned).length;
+  $('#pinned-note').innerHTML = pinnedCount
+    ? `📌 <b>${pinnedCount} pinned</b> — held on the board regardless of score. Click a pin to release it.`
+    : 'Click 📍 on a card to pin a stock so it stays visible when the list re-ranks.';
   if (!d.picks.length) {
     list.innerHTML = '<div class="card muted">No setups scoring ≥40 right now. Scanners on the Insights tab show what\'s moving.</div>';
     return;
@@ -414,68 +950,93 @@ function renderPicks(d) {
   list.innerHTML = d.picks.map((p, i) => {
     const sma = p.indicators || {};
     const smaLine = (sma.sma20 != null && sma.sma50 != null)
-      ? `<div><span>20 / 50-day SMA</span>₹${fmt(sma.sma20)} / ₹${fmt(sma.sma50)}${sma.sma200 != null ? ` <span class="muted">(200d ₹${fmt(sma.sma200)})</span>` : ''}</div>` : '';
+      ? `<div>${tip('sma', '20 / 50-day moving average')}₹${fmt(sma.sma20)} / ₹${fmt(sma.sma50)}${sma.sma200 != null ? ` <span class="muted">(200-day ₹${fmt(sma.sma200)})</span>` : ''}</div>` : '';
     // Live-only microstructure — absent on simulated series.
     const ind = p.indicators || {};
     const liveBits = [];
     if (ind.bid != null && ind.ask != null) {
-      liveBits.push(`<div><span>Bid / Ask</span>₹${fmt(ind.bid)} / ₹${fmt(ind.ask)}${ind.spreadPct != null ? ` <span class="${ind.spreadPct > 0.15 ? 'neg' : 'muted'}">(${ind.spreadPct}%)</span>` : ''}</div>`);
+      liveBits.push(`<div>${tip('bidask', 'Bid / Ask')}₹${fmt(ind.bid)} / ₹${fmt(ind.ask)}${ind.spreadPct != null ? ` <span class="${ind.spreadPct > 0.15 ? 'neg' : 'muted'}" data-tip="spread" tabindex="0">(${ind.spreadPct}% spread)</span>` : ''}</div>`);
     }
     if (ind.orderImbalance != null) {
       const pctImb = Math.round(ind.orderImbalance * 100);
-      liveBits.push(`<div><span>Book imbalance</span><span class="${pctImb > 0 ? 'pos' : pctImb < 0 ? 'neg' : 'neu'}">${pctImb > 0 ? '+' : ''}${pctImb}%</span></div>`);
+      liveBits.push(`<div>${tip('imbalance', 'Order book imbalance')}<span class="${pctImb > 0 ? 'pos' : pctImb < 0 ? 'neg' : 'neu'}">${pctImb > 0 ? '+' : ''}${pctImb}%</span></div>`);
     }
     if (ind.circuitHeadroomPct != null) {
-      liveBits.push(`<div><span>Circuit headroom</span><span class="${ind.circuitHeadroomPct < 2 ? 'neg' : ''}">${ind.circuitHeadroomPct}%</span></div>`);
+      liveBits.push(`<div>${tip('circuit', 'Circuit headroom')}<span class="${ind.circuitHeadroomPct < 2 ? 'neg' : ''}">${ind.circuitHeadroomPct}%</span></div>`);
     }
     const liveLine = liveBits.join('');
     const fund = p.fundamentals;
     const fundLine = fund
-      ? `<div class="muted" style="margin-top:8px;font-size:12px">${fund.pe != null ? `P/E ${fmt(fund.pe)}${fund.sectorPe != null ? ` (sector ${fmt(fund.sectorPe)})` : ''} · ` : ''}${fund.weekLow != null && fund.weekHigh != null ? `52w range ₹${fmt(fund.weekLow)}–₹${fmt(fund.weekHigh)}` : ''}</div>` : '';
+      ? `<div class="muted" style="margin-top:8px;font-size:12px">${fund.pe != null ? `${tip('pe', 'Price/Earnings')} ${fmt(fund.pe)}${fund.sectorPe != null ? ` (sector ${fmt(fund.sectorPe)})` : ''} · ` : ''}${fund.weekLow != null && fund.weekHigh != null ? `${tip('week52', '52-week range')} ₹${fmt(fund.weekLow)}–₹${fmt(fund.weekHigh)}` : ''}</div>` : '';
+    // A pinned card that would not otherwise be here has to say why, or it
+    // reads as a setup that passed the screen when it did not.
+    const pinFlag = p.pinned && p.belowCutoff
+      ? `<div class="pick-flag" data-tip="pinned-below" tabindex="0">📌 Pinned · scores ${p.score}, below the 40 cutoff</div>`
+      : p.pinned && p.outsideTop
+        ? `<div class="pick-flag" data-tip="pinned-outside" tabindex="0">📌 Pinned · outside today's top 5</div>`
+        : '';
     return `
-    <div class="card pick ${p.direction.toLowerCase()}" style="animation-delay:${i*70}ms">
+    <div class="card pick ${p.direction.toLowerCase()}${p.pinned ? ' is-pinned' : ''}" style="animation-delay:${i*70}ms" data-symbol="${p.symbol}">
+      <button class="pin-btn${p.pinned ? ' pinned' : ''}" data-pin="${p.symbol}"
+        title="${p.pinned ? 'Unpin ' + p.symbol : 'Pin ' + p.symbol + ' to keep it on the board'}"
+        aria-label="${p.pinned ? 'Unpin' : 'Pin'} ${p.symbol}" aria-pressed="${p.pinned ? 'true' : 'false'}">${p.pinned ? '📌' : '📍'}</button>
       <div class="pick-head">
         <span class="sym">${p.symbol}</span>
         <span class="badge action ${p.direction.toLowerCase()}">${p.direction === 'LONG' ? 'BUY' : 'SELL'}</span>
         <span class="badge info">${p.sector}</span>
-        <span class="badge ${p.real ? 'long' : 'info'}" title="${p.real ? 'Real Kite historical candles' : 'Simulated series — Kite historical data unavailable for this stock'}">${p.real ? '● REAL' : '○ SIM'}</span>
-        ${p.eventToday ? `<span class="badge short" title="${p.eventToday}">⚠ EVENT TODAY</span>` : ''}
+        <span class="badge ${p.real ? 'long' : 'info'}" data-tip="real" tabindex="0">${p.real ? '● REAL' : '○ SIM'}</span>
+        ${p.eventToday ? `<span class="badge short" data-tip="event" data-tip-html="<div class='tip-title'>Corporate event today</div><div class='tip-body'>${p.eventToday}. Deliberately not scored — event-day moves are driven by the announcement, not by the technical setup.</div>" tabindex="0">⚠ EVENT TODAY</span>` : ''}
         <span class="name">${p.name}</span>
-        <span class="score">setup score <b data-target="${p.score}">0</b>/100</span>
+        <span class="score" data-tip="score" data-tip-html="${scoreTipHtml(p).replace(/"/g, '&quot;')}" tabindex="0">setup score <b data-target="${p.score}">0</b>/100</span>
       </div>
-      <div style="margin-top:6px">₹${fmt(p.ltp)} <span class="${cls(p.changePct)}">${pct(p.changePct)}</span></div>
+      <div style="margin-top:6px"><span data-tip="ltp" tabindex="0" data-price="${p.ltp}">₹${fmt(p.ltp)}</span> <span class="${cls(p.changePct)}">${pct(p.changePct)}</span>${p.relStrength != null ? ` <span class="muted" style="font-size:12px" data-tip="relstrength" tabindex="0">(${pct(p.relStrength)} vs market)</span>` : ''}</div>
       <ul class="reasons">${p.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
       <div class="plan">
-        <div><span>Entry</span><b>₹${fmt(p.levels.referenceEntry)}</b></div>
-        <div class="sl"><span>Stop loss</span><b>₹${fmt(p.levels.stopLoss)}</b></div>
-        <div class="t1"><span>Target 1</span><b>₹${fmt(p.levels.target1)}</b><span class="rr" style="display:inline">1R</span></div>
-        <div class="t2"><span>Target 2</span><b>₹${fmt(p.levels.target2)}</b><span class="rr" style="display:inline">2R</span>
-          ${p.levels.target2Blocked ? `<span class="blocked">⚠ ${p.direction === 'LONG' ? 'R1' : 'S1'} sits before this level</span>` : ''}</div>
+        <div>${tip('entry', 'Entry')}<b>₹${fmt(p.levels.referenceEntry)}</b></div>
+        <div class="sl">${tip('stoploss', 'Stop loss')}<b>₹${fmt(p.levels.stopLoss)}</b></div>
+        <div class="t1">${tip('target1', 'Target 1')}<b>₹${fmt(p.levels.target1)}</b><span class="rr" style="display:inline" data-tip="risk" tabindex="0">1R</span></div>
+        <div class="t2">${tip('target2', 'Target 2')}<b>₹${fmt(p.levels.target2)}</b><span class="rr" style="display:inline" data-tip="risk" tabindex="0">2R</span>
+          ${p.levels.target2Blocked ? `<span class="blocked" data-tip="${p.direction === 'LONG' ? 'resistance1' : 'support1'}" tabindex="0">⚠ ${p.direction === 'LONG' ? 'Resistance 1' : 'Support 1'} sits before this level</span>` : ''}</div>
       </div>
-      <p class="plan-note">Risk ₹${fmt(p.levels.riskPerShare)}/share · qty risking 2% of ${capitalLabel} ≈ ${Math.floor((capital * 0.02) / Math.max(0.01, p.levels.riskPerShare))} shares · levels are 1.5×ATR calculations, not advice</p>
+      <p class="plan-note">Risk ₹${fmt(p.levels.riskPerShare)}/share · qty risking 2% of ${capitalLabel} ≈ ${Math.floor((capital * 0.02) / Math.max(0.01, p.levels.riskPerShare))} shares · levels are 1.5×${tip('atr', 'Average True Range')} calculations, not advice</p>
       <div class="levels">
-        <div><span>VWAP</span>₹${fmt(p.levels.vwap)}</div>
-        <div><span>Pivot</span>₹${fmt(p.levels.pivot)}</div>
-        <div><span>S1 / R1</span>₹${fmt(p.levels.support1)} / ₹${fmt(p.levels.resistance1)}</div>
+        <div>${tip('vwap', 'Volume Weighted Average Price')}₹${fmt(p.levels.vwap)}</div>
+        <div>${tip('pivot', 'Pivot point')}₹${fmt(p.levels.pivot)}</div>
+        <div>${tip('support1', 'Support 1')}₹${fmt(p.levels.support1)}</div>
+        <div>${tip('resistance1', 'Resistance 1')}₹${fmt(p.levels.resistance1)}</div>
         ${liveLine}
         ${smaLine}
       </div>
       ${fundLine}
+      ${pinFlag}
+      <div class="chart-hint">📊 Click for candlestick chart with COG &amp; volume</div>
     </div>`;
   }).join('');
   list.querySelectorAll('.score b[data-target]').forEach((el, i) => {
     setTimeout(() => countUpTo(el, Number(el.dataset.target)), i * 70 + 120);
+  });
+  list.querySelectorAll('.pick[data-symbol]').forEach(card => {
+    card.onclick = e => {
+      // The pin sits inside the card, whose own click opens the chart.
+      if (e.target.closest('[data-pin]')) return;
+      openChart(card.dataset.symbol);
+    };
+  });
+  list.querySelectorAll('[data-pin]').forEach(btn => {
+    btn.onclick = e => { e.stopPropagation(); togglePin(btn.dataset.pin); };
   });
 }
 
 function renderInsights(d) {
   const b = d.breadth;
   const sentColor = b.sentiment === 'BULLISH' ? 'pos' : b.sentiment === 'BEARISH' ? 'neg' : 'neu';
+  const ctx = d.context;
   $('#breadth-cards').innerHTML = `
-    <div class="card"><h3>Sentiment</h3><div class="big ${sentColor}">${b.sentiment}</div><div class="muted">avg change ${pct(b.avgChangePct)}</div></div>
-    <div class="card"><h3>Advances</h3><div class="big pos">${b.advances}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
-    <div class="card"><h3>Declines</h3><div class="big neg">${b.declines}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
-    <div class="card"><h3>Data source</h3><div class="big" style="font-size:18px">${d.dataSource === 'KITE_LIVE' ? '🟢 Kite live' : '🟡 Simulated'}</div><div class="muted">${d.realDataCoverage ? d.realDataCoverage + ' real historical' : 'refreshes on demand'}</div></div>`;
+    <div class="card"><h3>${tip('sentiment', 'Sentiment')}</h3><div class="big ${sentColor}">${b.sentiment}</div><div class="muted">avg change ${pct(b.avgChangePct)}</div></div>
+    <div class="card"><h3>${tip('advances', 'Advances')}</h3><div class="big pos">${b.advances}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
+    <div class="card"><h3>${tip('declines', 'Declines')}</h3><div class="big neg">${b.declines}</div><div class="muted">of ${b.advances + b.declines + b.unchanged} stocks</div></div>
+    <div class="card"><h3>${tip('datasource', 'Data source')}</h3><div class="big" style="font-size:18px">${d.dataSource === 'KITE_LIVE' ? '🟢 Kite live' : '🟡 Simulated'}</div><div class="muted">${d.realDataCoverage ? d.realDataCoverage + ' real historical' : 'refreshes on demand'}</div></div>
+    ${ctx ? `<div class="card"><h3>${tip('atrband', 'Volatility band')}</h3><div class="big" style="font-size:18px">${ctx.tradeableAtrBand.low}–${ctx.tradeableAtrBand.high}%</div><div class="muted">median ${ctx.medianAtrPct}% · market ${pct(ctx.marketChangePct)}</div></div>` : ''}`;
 
   $('#sector-table').innerHTML = '<tr><th>Sector</th><th>Avg chg</th><th>Stocks</th></tr>' +
     d.sectors.map(s => `<tr><td>${s.sector}</td><td class="${cls(s.avgChangePct)}">${pct(s.avgChangePct)}</td><td class="muted">${s.count}</td></tr>`).join('');
@@ -490,19 +1051,66 @@ function renderInsights(d) {
   $('#orb-table').innerHTML = '<tr><th>Symbol</th><th>LTP</th><th>Breakout</th></tr>' +
     (d.scanners.orbBreakouts.map(s => row3(s, `<td><span class="badge ${s.orbStatus==='BREAKOUT_UP'?'long':'short'}">${s.orbStatus==='BREAKOUT_UP'?'▲ Range high':'▼ Range low'}</span></td>`)).join('') || '<tr><td class="muted" colspan="3">None yet</td></tr>');
 
-  $('#universe-table').innerHTML = '<tr><th>Symbol</th><th>LTP</th><th>Chg</th><th>Gap</th><th>VWAP</th><th>Score</th></tr>' +
-    d.universe.map(s => `<tr><td><span title="${s.real ? 'Real Kite historical data' : 'Simulated'}" style="color:var(--${s.real?'green':'muted'})">●</span> <b>${s.symbol}</b> <span class="muted" style="font-size:11px">${s.sector}</span>${s.eventToday ? ` <span class="badge short" style="font-size:10px" title="${s.eventToday}">EVENT</span>` : ''}</td>
+  // The universe table is the only place every stock is listed, so it is where
+  // you can pin one that is not currently on the picks board — otherwise a
+  // stock could only be pinned during the window it happened to be ranked.
+  $('#universe-table').innerHTML = '<tr><th>Pin</th><th>Symbol</th><th>LTP</th><th>Chg</th><th>Gap</th><th>VWAP</th><th>Score</th></tr>' +
+    d.universe.map(s => {
+      const isPinned = pinnedSymbols.includes(s.symbol);
+      return `<tr><td><button class="pin-btn${isPinned ? ' pinned' : ''}" data-pin="${s.symbol}" style="position:static"
+        title="${isPinned ? 'Unpin ' + s.symbol : 'Pin ' + s.symbol + ' to keep it on the picks board'}"
+        aria-label="${isPinned ? 'Unpin' : 'Pin'} ${s.symbol}" aria-pressed="${isPinned}">${isPinned ? '📌' : '📍'}</button></td>
+      <td><span title="${s.real ? 'Real Kite historical data' : 'Simulated'}" style="color:var(--${s.real?'green':'muted'})">●</span> <b>${s.symbol}</b> <span class="muted" style="font-size:11px">${s.sector}</span>${s.eventToday ? ` <span class="badge short" style="font-size:10px" title="${s.eventToday}">EVENT</span>` : ''}</td>
       <td>₹${fmt(s.ltp)}</td><td class="${cls(s.changePct)}">${pct(s.changePct)}</td>
       <td class="${cls(s.gapPct)}">${pct(s.gapPct)}</td>
       <td>${s.aboveVwap ? '<span class="pos">above</span>' : '<span class="neg">below</span>'}</td>
-      <td>${s.score} <span class="badge ${s.direction.toLowerCase()}" style="font-size:10px">${s.direction}</span></td></tr>`).join('');
+      <td>${s.score} <span class="badge ${s.direction.toLowerCase()}" style="font-size:10px">${s.direction}</span></td></tr>`;
+    }).join('');
+
+  $('#universe-table').querySelectorAll('[data-pin]').forEach(btn => {
+    btn.onclick = e => { e.stopPropagation(); togglePin(btn.dataset.pin); };
+  });
 }
 
 // ---------- Kite Connect ----------
 $('#redirect-url').textContent = location.origin + '/api/kite/callback';
 
+// Saved credentials are locked: the fields show what is stored but cannot be
+// changed until Edit is pressed. Without that, the secret field sits empty next
+// to a working setup and one stray keystroke plus Save silently replaces a
+// good credential with a broken one.
+let kiteEditing = false;
+let kiteStatus = null;
+
+function renderKiteForm() {
+  const st = kiteStatus || {};
+  const locked = st.persisted && !kiteEditing;
+
+  $('#kite-key').disabled = locked;
+  $('#kite-secret').disabled = locked;
+  $('#kite-remember-row').style.display = locked ? 'none' : 'flex';
+
+  if (locked) {
+    $('#kite-key').value = st.apiKeyMasked || '';
+    $('#kite-secret').value = '';
+    $('#kite-secret').placeholder = '•••••••• saved';
+  } else if (!kiteEditing) {
+    $('#kite-secret').placeholder = 'Your Kite Connect API secret';
+  }
+
+  $('#kite-save').style.display = locked ? 'none' : 'inline-block';
+  $('#kite-edit').style.display = locked ? 'inline-block' : 'none';
+  $('#kite-cancel-edit').style.display = kiteEditing ? 'inline-block' : 'none';
+  $('#kite-forget').style.display = st.persisted ? 'inline-block' : 'none';
+
+  $('#kite-storage-note').innerHTML = st.persisted
+    ? 'Saved on this server, so they survive a restart. Stored in plain text in <code>data/kite.json</code> (gitignored) — anyone who can read that file can read your API secret.'
+    : 'Ticked, credentials are written to <code>data/kite.json</code> on this server so you do not re-enter them after a restart. Unticked, they live in memory only and are lost when the server stops.';
+}
+
 async function loadKiteStatus() {
   const st = await (await api('/api/kite/status')).json();
+  kiteStatus = st;
   const chip = $('#kite-chip');
   if (st.connected) {
     chip.innerHTML = `<span class="dot live" style="background:var(--green);color:var(--green)"></span>Kite: ${st.userName || st.userId}`;
@@ -511,20 +1119,53 @@ async function loadKiteStatus() {
     $('#kite-login').disabled = true;
   } else {
     chip.innerHTML = `<span class="dot" style="background:var(--${st.configured ? 'amber' : 'muted'})"></span>Kite: ${st.configured ? 'configured, not logged in' : 'not connected'}`;
-    $('#kite-status-text').textContent = st.configured
-      ? `Key ${st.apiKeyMasked} saved. Click "Login with Kite" to start a session.` + (st.lastError ? ` Last error: ${st.lastError}` : '')
+    $('#kite-status-text').innerHTML = st.configured
+      ? `Key <b>${st.apiKeyMasked}</b> ${st.persisted ? 'saved on this server' : 'set for this session'}. Click "Login with Kite" to start a session.` + (st.lastError ? ` Last error: ${st.lastError}` : '')
       : 'Not configured. Add your Kite Connect app credentials to stream live NSE data into the insights engine.';
     $('#kite-disconnect').style.display = 'none';
     $('#kite-login').disabled = !st.configured;
   }
+  renderKiteForm();
 }
 
 $('#kite-save').onclick = async () => {
   const apiKey = $('#kite-key').value.trim(), apiSecret = $('#kite-secret').value.trim();
   if (!apiKey || !apiSecret) return alert('Enter both API key and secret');
-  const r = await api('/api/kite/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({apiKey, apiSecret}) });
-  if (r.ok) { $('#kite-secret').value = ''; await loadKiteStatus(); }
+  const remember = $('#kite-remember').checked;
+  const r = await api('/api/kite/config', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey, apiSecret, remember }),
+  });
+  if (r.ok) { $('#kite-secret').value = ''; kiteEditing = false; await loadKiteStatus(); }
   else alert((await r.json()).error || 'Failed to save');
+};
+
+$('#kite-edit').onclick = () => {
+  kiteEditing = true;
+  // Clear rather than pre-fill: the masked key is not the real one, and saving
+  // it back would store the mask as the credential.
+  $('#kite-key').value = '';
+  $('#kite-secret').value = '';
+  $('#kite-secret').placeholder = 'Re-enter your API secret';
+  $('#kite-remember').checked = true;
+  renderKiteForm();
+  $('#kite-key').focus();
+};
+
+$('#kite-cancel-edit').onclick = () => {
+  kiteEditing = false;
+  $('#kite-secret').value = '';
+  renderKiteForm();
+};
+
+$('#kite-forget').onclick = async () => {
+  if (!confirm('Forget the saved API key and secret on this server? You will need to enter them again.')) return;
+  const r = await api('/api/kite/config', { method: 'DELETE' });
+  if (r.ok) {
+    kiteEditing = false;
+    $('#kite-key').value = ''; $('#kite-secret').value = '';
+    await loadKiteStatus();
+  } else alert((await r.json()).error || 'Failed to forget credentials');
 };
 
 $('#kite-login').onclick = async () => {
@@ -562,7 +1203,392 @@ $('#refresh').onclick = async () => {
   await Promise.all([loadInsights(), loadMarketStatus(), loadKiteStatus()]);
   btn.classList.remove('spinning');
 };
-loadUser().then(ok => { if (ok) { loadMarketStatus(); loadKiteStatus(); loadInsights(); } });
+// ---------- candlestick chart with COG / volume studies ----------
+//
+// Two charts rather than one: Lightweight Charts v4 has no multi-pane support
+// (that landed in v5), so the oscillator gets its own chart with a synced time
+// scale. Both are built once on first open and reused — recreating them per
+// pick leaks WebGL contexts and loses the user's zoom.
+const CHART_COLORS = {
+  up: '#3fb950', down: '#f85149', cog: '#f778ba', signal: '#8b949e',
+  regression: '#a371f7', volumeCog: '#58a6ff', poc: '#d29922',
+  entry: '#58a6ff', stop: '#f85149', t1: '#3fb950', t2: '#3fb950',
+};
+
+let charts = null;          // { price, cog, series… } once built
+let chartSymbol = null;
+let chartTimer = null;
+let priceLines = [];
+const studyState = { volume: true, cog: true, regression: true, volumeCog: true, poc: true, levels: true };
+
+function chartTheme() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  return {
+    bg: light ? '#ffffff' : '#0d1117',
+    text: light ? '#24292f' : '#e6edf3',
+    grid: light ? '#eaeef2' : '#1c2128',
+    border: light ? '#d0d7de' : '#30363d',
+  };
+}
+
+function buildCharts() {
+  const t = chartTheme();
+  const base = paneHeight => ({
+    autoSize: true,
+    layout: { background: { color: t.bg }, textColor: t.text, fontSize: 11 },
+    grid: { vertLines: { color: t.grid }, horzLines: { color: t.grid } },
+    rightPriceScale: { borderColor: t.border },
+    timeScale: { borderColor: t.border, timeVisible: true, secondsVisible: false },
+    crosshair: { mode: 0 },
+  });
+
+  const price = LightweightCharts.createChart($('#price-chart'), base());
+  const cog = LightweightCharts.createChart($('#cog-chart'), {
+    ...base(),
+    timeScale: { ...base().timeScale, visible: false },
+  });
+
+  const candles = price.addCandlestickSeries({
+    upColor: CHART_COLORS.up, downColor: CHART_COLORS.down,
+    borderUpColor: CHART_COLORS.up, borderDownColor: CHART_COLORS.down,
+    wickUpColor: CHART_COLORS.up, wickDownColor: CHART_COLORS.down,
+  });
+
+  // Volume shares the price pane but gets its own invisible scale, pinned to
+  // the bottom fifth so it reads as a footer rather than competing with price.
+  const volume = price.addHistogramSeries({
+    priceFormat: { type: 'volume' }, priceScaleId: '', lastValueVisible: false, priceLineVisible: false,
+  });
+  volume.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+
+  const line = (chart, color, width = 1, style = 0) => chart.addLineSeries({
+    color, lineWidth: width, lineStyle: style, priceLineVisible: false,
+    lastValueVisible: false, crosshairMarkerVisible: false,
+  });
+
+  const series = {
+    candles, volume,
+    regMid: line(price, CHART_COLORS.regression, 1),
+    regUpper: line(price, CHART_COLORS.regression, 1, 2),
+    regLower: line(price, CHART_COLORS.regression, 1, 2),
+    volumeCog: line(price, CHART_COLORS.volumeCog, 2),
+    cog: line(cog, CHART_COLORS.cog, 2),
+    cogSignal: line(cog, CHART_COLORS.signal, 1, 2),
+  };
+
+  // Keep the two time scales locked together, guarding the echo — setting one
+  // fires the other's handler, which would set the first back.
+  let syncing = false;
+  const sync = (from, to) => from.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (syncing || !range) return;
+    syncing = true;
+    to.timeScale().setVisibleLogicalRange(range);
+    syncing = false;
+  });
+  sync(price, cog);
+  sync(cog, price);
+
+  charts = { price, cog, ...series };
+  return charts;
+}
+
+function applyStudyVisibility() {
+  if (!charts) return;
+  charts.volume.applyOptions({ visible: studyState.volume });
+  charts.cog.applyOptions({ visible: studyState.cog });
+  charts.cogSignal.applyOptions({ visible: studyState.cog });
+  $('#cog-chart').style.display = studyState.cog ? '' : 'none';
+  $('#cog-label').style.display = studyState.cog ? '' : 'none';
+  for (const k of ['regMid', 'regUpper', 'regLower']) charts[k].applyOptions({ visible: studyState.regression });
+  charts.volumeCog.applyOptions({ visible: studyState.volumeCog });
+  drawPriceLines();
+}
+
+// POC and the trade plan are horizontal levels, not series — they are redrawn
+// wholesale because Lightweight Charts has no way to toggle a price line.
+let lastPayload = null;
+function drawPriceLines() {
+  if (!charts) return;
+  priceLines.forEach(l => charts.candles.removePriceLine(l));
+  priceLines = [];
+  const add = (price, color, title, style = 2) => {
+    if (price == null) return;
+    priceLines.push(charts.candles.createPriceLine({
+      price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title,
+    }));
+  };
+
+  if (studyState.poc && lastPayload?.studies?.volumeProfile?.poc != null) {
+    add(lastPayload.studies.volumeProfile.poc, CHART_COLORS.poc, 'POC', 0);
+  }
+  if (studyState.levels && chartSymbol) {
+    const pick = latest?.picks?.find(p => p.symbol === chartSymbol);
+    if (pick) {
+      add(pick.levels.referenceEntry, CHART_COLORS.entry, 'Entry', 0);
+      add(pick.levels.stopLoss, CHART_COLORS.stop, 'SL');
+      add(pick.levels.target1, CHART_COLORS.t1, 'T1');
+      add(pick.levels.target2, CHART_COLORS.t2, 'T2');
+    }
+  }
+}
+
+function renderChart(payload, { keepView }) {
+  lastPayload = payload;
+  const c = payload.candles || [];
+  charts.candles.setData(c);
+  charts.volume.setData(c.map(k => ({
+    time: k.time, value: k.volume,
+    color: k.close >= k.open ? 'rgba(63,185,80,.45)' : 'rgba(248,81,73,.45)',
+  })));
+
+  const s = payload.studies || {};
+  const pick = (arr, key) => (arr || []).filter(p => p[key] != null).map(p => ({ time: p.time, value: p[key] }));
+  charts.regMid.setData(pick(s.regression, 'mid'));
+  charts.regUpper.setData(pick(s.regression, 'upper'));
+  charts.regLower.setData(pick(s.regression, 'lower'));
+  charts.volumeCog.setData(pick(s.volumeCog, 'value'));
+  charts.cog.setData(pick(s.cog, 'cog'));
+  charts.cogSignal.setData(pick(s.cog, 'signal'));
+
+  $('#cog-label').textContent =
+    `Ehlers Center of Gravity (${s.cogPeriod ?? 10}) · pink = COG, grey dashed = signal · crossovers mark turns`;
+
+  const last = c[c.length - 1];
+  $('#chart-foot').innerHTML = [
+    // Kite spells the 1-minute interval "minute", with no leading 1.
+    `${c.length} × ${(payload.interval === 'minute' ? '1' : payload.interval.replace('minute', ''))}-min candles`,
+    last ? `O ${fmt(last.open)} H ${fmt(last.high)} L ${fmt(last.low)} C ${fmt(last.close)}` : '',
+    s.regressionPeriod ? `Regression ${s.regressionPeriod}-bar ±2σ` : '',
+    s.volumeProfile?.poc != null ? `POC ₹${fmt(s.volumeProfile.poc)}` : '',
+    'Refreshes every 60s',
+  ].filter(Boolean).map(x => `<span>${x}</span>`).join('');
+
+  drawPriceLines();
+  if (!keepView) { charts.price.timeScale().fitContent(); charts.cog.timeScale().fitContent(); }
+}
+
+async function loadChartData({ keepView = false } = {}) {
+  const interval = $('#chart-interval').value;
+  const r = await api(`/api/market/candles/${chartSymbol}?interval=${interval}`);
+  if (!r.ok) {
+    $('#chart-foot').innerHTML = `<span style="color:var(--red)">Could not load candles (${r.status})</span>`;
+    return;
+  }
+  const payload = await r.json();
+  if (payload.symbol !== chartSymbol) return;   // a different pick was opened mid-flight
+  $('#chart-real').textContent = payload.real ? '● REAL' : '○ SIM';
+  $('#chart-real').className = 'badge ' + (payload.real ? 'long' : 'info');
+  $('#chart-real').title = payload.real
+    ? 'Real Kite historical candles'
+    : 'Simulated candles — connect Kite (with the Historical Data add-on) for real ones';
+  $('#chart-name').textContent = payload.name || '';
+  renderChart(payload, { keepView });
+}
+
+function openChart(symbol) {
+  chartSymbol = symbol;
+  const pick = latest?.picks?.find(p => p.symbol === symbol);
+  $('#chart-sym').textContent = symbol;
+  $('#chart-dir').textContent = pick ? (pick.direction === 'LONG' ? 'BUY' : 'SELL') : '';
+  $('#chart-dir').className = 'badge action ' + (pick ? pick.direction.toLowerCase() : '');
+  $('#chart-modal').classList.remove('hidden');
+
+  if (!charts) buildCharts();          // built here so the panes have real width
+  applyStudyVisibility();
+  loadChartData();
+
+  clearInterval(chartTimer);
+  chartTimer = setInterval(() => loadChartData({ keepView: true }), 60_000);
+}
+
+function closeChart() {
+  clearInterval(chartTimer);
+  chartTimer = null;
+  chartSymbol = null;
+  $('#chart-modal').classList.add('hidden');
+}
+
+$('#chart-close').onclick = closeChart;
+$('#chart-modal').onclick = e => { if (e.target.id === 'chart-modal') closeChart(); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('#chart-modal').classList.contains('hidden')) closeChart();
+});
+$('#chart-interval').onchange = () => loadChartData();
+$('#study-bar').onclick = e => {
+  const el = e.target.closest('.study-toggle');
+  if (!el) return;
+  const key = el.dataset.study;
+  studyState[key] = !studyState[key];
+  el.classList.toggle('on', studyState[key]);
+  applyStudyVisibility();
+};
+
+// ---------- live ticks over WebSocket ----------
+//
+// Polling cannot deliver live prices: the interval is a floor on staleness and
+// every poll costs a round trip whether or not anything moved. The server holds
+// one Kite ticker per session and pushes batched ticks here.
+//
+// Ticks update the *displayed* price only. Scores, levels and rankings still
+// come from the periodic REST refresh — recomputing a setup score from a single
+// tick would make the board flicker between recommendations on every trade.
+const livePrices = new Map();   // symbol -> { lastPrice, changePct, at }
+let tickSocket = null;
+let tickRetries = 0;
+
+function setLiveStatus(text, live) {
+  const el = $('#live-status');
+  if (!el) return;
+  el.className = 'live-chip';
+  el.innerHTML = live
+    ? '<span class="dot live" style="background:var(--green);color:var(--green)"></span>Live ticks'
+    : `<span class="dot" style="background:var(--muted)"></span>${text}`;
+}
+
+function connectTicks() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  tickSocket = new WebSocket(`${proto}//${location.host}`);
+
+  tickSocket.onopen = () => { tickRetries = 0; };
+
+  tickSocket.onmessage = e => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+
+    if (msg.type === 'ticks') {
+      for (const t of msg.ticks) {
+        // Read the previous price before overwriting it — the crossing rules
+        // compare against it, so updating first would make every crossing
+        // invisible (previous would always equal current).
+        const prev = livePrices.get(t.symbol)?.lastPrice ?? null;
+        livePrices.set(t.symbol, { lastPrice: t.lastPrice, changePct: t.changePct, at: Date.now() });
+        applyTick(t);
+        checkAlerts(t, prev);
+      }
+    } else if (msg.type === 'ticker-status') {
+      setLiveStatus(
+        msg.reason === 'kite-not-connected' ? 'Live ticks need a Kite login'
+          : msg.error ? `Live ticks: ${msg.error}`
+          : 'Live ticks reconnecting…',
+        msg.connected);
+    }
+  };
+
+  tickSocket.onclose = () => {
+    setLiveStatus('Live ticks disconnected', false);
+    // Backoff, capped — the server may be restarting, and a tight retry loop
+    // would spin the CPU for the whole time it is down.
+    const delay = Math.min(30000, 1000 * 2 ** tickRetries++);
+    setTimeout(connectTicks, delay);
+  };
+
+  tickSocket.onerror = () => { /* 'close' follows; reconnect is handled there */ };
+}
+
+/** Update the price shown on a card in place, without re-rendering it. */
+function applyTick(t) {
+  const card = document.querySelector(`.pick[data-symbol="${t.symbol}"]`);
+  if (!card) return;
+  const priceEl = card.querySelector('[data-tip="ltp"]');
+  if (!priceEl) return;
+
+  const previous = Number(priceEl.dataset.price || 0);
+  priceEl.dataset.price = t.lastPrice;
+  priceEl.textContent = '₹' + fmt(t.lastPrice);
+
+  if (previous && t.lastPrice !== previous) {
+    const dir = t.lastPrice > previous ? 'tick-up' : 'tick-down';
+    priceEl.classList.remove('tick-up', 'tick-down');
+    void priceEl.offsetWidth;                  // restart the flash
+    priceEl.classList.add(dir);
+  }
+
+  if (t.changePct != null) {
+    const chg = priceEl.nextElementSibling;
+    if (chg) { chg.textContent = pct(t.changePct); chg.className = cls(t.changePct); }
+  }
+}
+
+// ---------- alerts ----------
+//
+// Fired from ticks rather than from the refresh, so an entry touch is caught
+// when it happens rather than up to a minute later. Each alert fires once per
+// symbol per session: a price hovering on a level would otherwise produce a
+// notification per tick.
+const firedAlerts = new Set();
+let alertsEnabled = localStorage.getItem('alertsEnabled') === 'true';
+
+function alertRules(pick, price, previous) {
+  const long = pick.direction === 'LONG';
+  const crossed = level =>
+    previous != null && level != null &&
+    (long ? (previous < level && price >= level) : (previous > level && price <= level));
+  // For a short, "reaching" the entry or a target means falling to it.
+  const reached = level =>
+    level != null && (long ? price >= level : price <= level);
+  const stopHit = pick.levels.stopLoss != null &&
+    (long ? price <= pick.levels.stopLoss : price >= pick.levels.stopLoss);
+
+  const out = [];
+  if (crossed(pick.levels.referenceEntry) || (previous == null && reached(pick.levels.referenceEntry))) {
+    out.push(['entry', 'Entry touched', `${pick.symbol} reached the reference entry ₹${fmt(pick.levels.referenceEntry)}.`]);
+  }
+  if (reached(pick.levels.target1)) out.push(['hit-t1', 'Target 1 reached', `${pick.symbol} hit T1 ₹${fmt(pick.levels.target1)} (1R).`]);
+  if (reached(pick.levels.target2)) out.push(['hit-t2', 'Target 2 reached', `${pick.symbol} hit T2 ₹${fmt(pick.levels.target2)} (2R).`]);
+  if (stopHit) out.push(['hit-sl', 'Stop loss level', `${pick.symbol} reached the stop ₹${fmt(pick.levels.stopLoss)}.`]);
+  return out;
+}
+
+function checkAlerts(t, prev) {
+  if (!alertsEnabled || !latest?.picks) return;
+  const pick = latest.picks.find(p => p.symbol === t.symbol);
+  if (!pick) return;
+
+  for (const [kind, title, body] of alertRules(pick, t.lastPrice, prev)) {
+    const key = `${t.symbol}:${kind}`;
+    if (firedAlerts.has(key)) continue;
+    firedAlerts.add(key);
+    notify(kind, title, body, t.symbol);
+  }
+  $('#alert-summary').textContent = firedAlerts.size ? `${firedAlerts.size} alert(s) this session` : '';
+}
+
+function notify(kind, title, body, symbol) {
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.innerHTML = `<div class="t-title">${title}</div><div class="t-body">${body}</div>
+    <div class="t-time">${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST · click to chart</div>`;
+  el.onclick = () => { el.remove(); if (symbol) openChart(symbol); };
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), 15000);
+
+  // A desktop notification only reaches the user when the tab is not focused;
+  // the toast covers the case where it is.
+  if (window.Notification?.permission === 'granted' && document.hidden) {
+    try { new Notification(`Trade101 — ${title}`, { body, tag: `${symbol}:${kind}` }); } catch { /* blocked */ }
+  }
+}
+
+function renderAlertToggle() {
+  const btn = $('#alerts-toggle');
+  btn.classList.toggle('on', alertsEnabled);
+  btn.textContent = alertsEnabled ? '🔔 Alerts on' : '🔔 Enable alerts';
+}
+
+$('#alerts-toggle').onclick = async () => {
+  alertsEnabled = !alertsEnabled;
+  localStorage.setItem('alertsEnabled', String(alertsEnabled));
+  // Ask for desktop permission only when alerts are actually switched on —
+  // a permission prompt on page load is the kind of thing people click away.
+  if (alertsEnabled && window.Notification && Notification.permission === 'default') {
+    try { await Notification.requestPermission(); } catch { /* dismissed */ }
+  }
+  renderAlertToggle();
+};
+
+renderAlertToggle();
+renderGuide();   // static content — no need to wait for auth or a data load
+loadUser().then(ok => { if (ok) { loadMarketStatus(); loadKiteStatus(); loadInsights(); connectTicks(); } });
 setInterval(loadInsights, 60_000);       // refresh picks every minute
 setInterval(loadMarketStatus, 60_000);
 </script>

@@ -12,6 +12,7 @@ import {
   computeIndicators,
   generateInsights,
   generateIntradaySeries,
+  normalisePinned,
   scoreStock,
   volatilityFit,
 } from '../server/services/insightsEngine.js';
@@ -263,6 +264,88 @@ test('the whole universe is ranked without ties', () => {
     new Set(ranks).size, ranks.length,
     'every stock should get a distinct rank; ties fall back to array order',
   );
+});
+
+// ---------- pinned stocks ----------
+
+test('normalisePinned accepts a comma string or an array', () => {
+  assert.deepEqual(normalisePinned('RELIANCE,TCS'), ['RELIANCE', 'TCS']);
+  assert.deepEqual(normalisePinned(['RELIANCE', 'TCS']), ['RELIANCE', 'TCS']);
+});
+
+test('normalisePinned is case- and whitespace-insensitive', () => {
+  assert.deepEqual(normalisePinned(' reliance , TcS '), ['RELIANCE', 'TCS']);
+});
+
+test('normalisePinned drops unknown symbols instead of erroring', () => {
+  // A stale pin in someone's browser must not break the insights response.
+  assert.deepEqual(normalisePinned('RELIANCE,NOTAREALSTOCK'), ['RELIANCE']);
+  assert.deepEqual(normalisePinned(''), []);
+  assert.deepEqual(normalisePinned(null), []);
+  assert.deepEqual(normalisePinned(undefined), []);
+});
+
+test('normalisePinned de-duplicates', () => {
+  assert.deepEqual(normalisePinned('TCS,TCS,tcs'), ['TCS']);
+});
+
+test('a pinned stock appears even when it would not make the cut', async () => {
+  const base = await generateInsights(null, null);
+  const shown = new Set(base.picks.map(p => p.symbol));
+  // Pick a stock the screener left out, so the pin is doing the work.
+  const missing = UNIVERSE.map(s => s.symbol).find(s => !shown.has(s));
+  assert.ok(missing, 'precondition: some stock is not already picked');
+
+  const pinnedRun = await generateInsights(null, null, { pinned: [missing] });
+  const pin = pinnedRun.picks.find(p => p.symbol === missing);
+
+  assert.ok(pin, `${missing} should be on the board once pinned`);
+  assert.equal(pin.pinned, true);
+  assert.ok(pin.belowCutoff || pin.outsideTop,
+    'a pinned stock that was not already shown must be flagged as such');
+});
+
+test('pinned stocks sort ahead of unpinned ones', async () => {
+  const base = await generateInsights(null, null);
+  const shown = new Set(base.picks.map(p => p.symbol));
+  const missing = UNIVERSE.map(s => s.symbol).find(s => !shown.has(s));
+
+  const pinnedRun = await generateInsights(null, null, { pinned: [missing] });
+  const firstUnpinned = pinnedRun.picks.findIndex(p => !p.pinned);
+  const lastPinned = pinnedRun.picks.map(p => p.pinned).lastIndexOf(true);
+  assert.ok(lastPinned < firstUnpinned, 'all pinned cards must precede unpinned ones');
+});
+
+test('pinning does not evict the ranked picks', async () => {
+  const base = await generateInsights(null, null);
+  const shown = base.picks.map(p => p.symbol);
+  const missing = UNIVERSE.map(s => s.symbol).find(s => !shown.includes(s));
+
+  const pinnedRun = await generateInsights(null, null, { pinned: [missing] });
+  const after = pinnedRun.picks.map(p => p.symbol);
+  for (const sym of shown) {
+    assert.ok(after.includes(sym), `${sym} should still be shown after pinning ${missing}`);
+  }
+  assert.equal(after.length, shown.length + 1);
+});
+
+test('pinning a stock already in the picks does not duplicate it', async () => {
+  const base = await generateInsights(null, null);
+  assert.ok(base.picks.length, 'precondition: there are picks to pin');
+  const existing = base.picks[0].symbol;
+
+  const pinnedRun = await generateInsights(null, null, { pinned: [existing] });
+  const hits = pinnedRun.picks.filter(p => p.symbol === existing);
+  assert.equal(hits.length, 1, 'pinned stock must appear exactly once');
+  assert.equal(hits[0].pinned, true);
+  assert.equal(pinnedRun.picks.length, base.picks.length);
+});
+
+test('an unpinned run is unchanged by the pinning code path', async () => {
+  const a = await generateInsights(null, null);
+  const b = await generateInsights(null, null, { pinned: [] });
+  assert.deepEqual(a.picks.map(p => p.symbol), b.picks.map(p => p.symbol));
+  assert.ok(a.picks.every(p => p.pinned === false));
 });
 
 test('stop distance stays proportional to the stock', () => {

@@ -24,24 +24,72 @@ const KITE_VERSION = '3';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CREDENTIALS_FILE = join(__dirname, '..', '..', 'data', 'kite.json');
 
-/**
- * Credentials from data/kite.json (gitignored), falling back to env vars.
- * Read fresh on each session so editing the file doesn't require a restart.
- * Returns nulls when nothing is configured — the UI flow still works.
- */
-function loadStoredCredentials() {
-  let apiKey = process.env.KITE_API_KEY || null;
-  let apiSecret = process.env.KITE_API_SECRET || null;
-
+function readCredentialsFile() {
   try {
-    const file = JSON.parse(fs.readFileSync(CREDENTIALS_FILE, 'utf8'));
-    apiKey = file.apiKey?.trim() || apiKey;
-    apiSecret = file.apiSecret?.trim() || apiSecret;
+    return JSON.parse(fs.readFileSync(CREDENTIALS_FILE, 'utf8'));
   } catch {
-    // Missing or malformed file is fine — fall back to env/UI configuration.
+    return {};   // missing or malformed is fine — fall back to env/UI
   }
+}
 
-  return { apiKey: apiKey || null, apiSecret: apiSecret || null };
+function writeCredentialsFile(data) {
+  fs.mkdirSync(dirname(CREDENTIALS_FILE), { recursive: true });
+  // 0600 so the file is not world-readable. Note this is a POSIX mode: on
+  // Windows Node only maps it to the read-only flag, so it does NOT restrict
+  // other accounts there. The gitignore on data/ is what keeps it out of the
+  // repo; filesystem-level protection is the operator's job.
+  fs.writeFileSync(CREDENTIALS_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
+  try { fs.chmodSync(CREDENTIALS_FILE, 0o600); } catch { /* best effort */ }
+}
+
+/**
+ * Credentials for a user, in precedence order: their own saved credentials,
+ * then the legacy top-level pair in the file, then env vars.
+ *
+ * Per-user rather than global because the top-level pair is shared by every
+ * account on this server — fine for a single operator, a credential leak
+ * between accounts as soon as there are two. Saving through the UI always
+ * writes to the per-user slot; the global pair is honoured for anyone who
+ * hand-wrote the file before this existed.
+ *
+ * Read fresh each time so editing the file doesn't require a restart.
+ */
+function loadStoredCredentials(username = null) {
+  const file = readCredentialsFile();
+  const mine = username ? file.users?.[username] : null;
+
+  const apiKey = mine?.apiKey?.trim() || file.apiKey?.trim() || process.env.KITE_API_KEY || null;
+  const apiSecret = mine?.apiSecret?.trim() || file.apiSecret?.trim() || process.env.KITE_API_SECRET || null;
+
+  return {
+    apiKey: apiKey || null,
+    apiSecret: apiSecret || null,
+    // Whether these came from disk for *this* user, so the UI can show the
+    // saved state and lock the fields rather than inviting a re-entry.
+    persisted: Boolean(mine?.apiKey && mine?.apiSecret),
+  };
+}
+
+/** Persist a user's credentials so they survive a restart. */
+export function saveStoredCredentials(username, apiKey, apiSecret) {
+  if (!username) throw new Error('Not signed in');
+  const file = readCredentialsFile();
+  file.users ||= {};
+  file.users[username] = {
+    apiKey: String(apiKey).trim(),
+    apiSecret: String(apiSecret).trim(),
+    savedAt: new Date().toISOString(),
+  };
+  writeCredentialsFile(file);
+}
+
+/** Forget a user's saved credentials. Leaves other users' entries alone. */
+export function clearStoredCredentials(username) {
+  const file = readCredentialsFile();
+  if (file.users?.[username]) {
+    delete file.users[username];
+    writeCredentialsFile(file);
+  }
 }
 
 // Native fetch ignores a plain `timeout` option — it must be enforced with
@@ -61,22 +109,49 @@ function getKiteSession(token) {
   const session = getSession(token);
   if (!session) return null;
   if (!session.kite) {
-    const stored = loadStoredCredentials();
+    const stored = loadStoredCredentials(session.username);
     session.kite = {
       apiKey: stored.apiKey,
       apiSecret: stored.apiSecret,
+      persisted: stored.persisted,
       accessToken: null, userId: null, userName: null, connectedAt: null, lastError: null,
     };
   }
   return session.kite;
 }
 
-export function setCredentials(token, apiKey, apiSecret) {
+/**
+ * Set credentials for this session, optionally persisting them to disk.
+ *
+ * `persist` is opt-in per call rather than implicit: writing an API secret to
+ * disk is a decision the operator should make deliberately, not a side effect
+ * of filling in a form.
+ */
+export function setCredentials(token, apiKey, apiSecret, persist = false) {
+  const session = getSession(token);
+  if (!session) throw new Error('Session expired');
   const kite = getKiteSession(token);
-  if (!kite) throw new Error('Session expired');
   kite.apiKey = apiKey?.trim() || null;
   kite.apiSecret = apiSecret?.trim() || null;
   kite.accessToken = null;
+  kite.lastError = null;
+
+  if (persist && kite.apiKey && kite.apiSecret) {
+    saveStoredCredentials(session.username, kite.apiKey, kite.apiSecret);
+    kite.persisted = true;
+  }
+}
+
+/** Forget saved credentials and drop them from the live session too. */
+export function forgetCredentials(token) {
+  const session = getSession(token);
+  if (!session) throw new Error('Session expired');
+  clearStoredCredentials(session.username);
+  const kite = getKiteSession(token);
+  kite.apiKey = null;
+  kite.apiSecret = null;
+  kite.accessToken = null;
+  kite.persisted = false;
   kite.lastError = null;
 }
 
@@ -86,6 +161,9 @@ export function getStatus(token) {
   return {
     configured: Boolean(kite.apiKey && kite.apiSecret),
     connected: Boolean(kite.accessToken),
+    // Saved credentials are shown masked and locked, so the UI needs to know
+    // they exist without ever receiving the secret back.
+    persisted: Boolean(kite.persisted),
     apiKeyMasked: kite.apiKey ? kite.apiKey.slice(0, 4) + '••••' : null,
     userId: kite.userId,
     userName: kite.userName,
@@ -234,6 +312,16 @@ export async function getPositions(token) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Credentials needed to open a ticker connection. Null unless a Kite login has
+ * completed — the ticker needs an access token, not just the API key.
+ */
+export function getTickerCredentials(token) {
+  const kite = getKiteSession(token);
+  if (!kite?.apiKey || !kite?.accessToken) return null;
+  return { apiKey: kite.apiKey, accessToken: kite.accessToken };
 }
 
 export function isConnected(token) {

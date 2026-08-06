@@ -10,7 +10,9 @@ router.get('/', async (req, res) => {
   try {
     const token = parseCookies(req)[SESSION_COOKIE];
     const liveQuotes = await getUniverseQuotes(token, UNIVERSE.map(s => s.symbol));
-    res.json(await generateInsights(token, liveQuotes));
+    // Pins live in the client's localStorage and ride along per request, so the
+    // server stays stateless and pins survive without a user-data store.
+    res.json(await generateInsights(token, liveQuotes, { pinned: req.query.pinned }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -21,7 +23,7 @@ router.get('/picks', async (req, res) => {
   try {
     const token = parseCookies(req)[SESSION_COOKIE];
     const liveQuotes = await getUniverseQuotes(token, UNIVERSE.map(s => s.symbol));
-    const insights = await generateInsights(token, liveQuotes);
+    const insights = await generateInsights(token, liveQuotes, { pinned: req.query.pinned });
     res.json({
       generatedAt: insights.generatedAt,
       dataSource: insights.dataSource,

@@ -71,25 +71,32 @@ function mulberry32(seed) {
   };
 }
 
-// ---------- simulated intraday series (5-min candles from 9:15) ----------
-export function generateIntradaySeries(symbol, refPrice, date = new Date()) {
+// ---------- simulated intraday series (candles from 9:15) ----------
+// `stepMinutes` defaults to 5, the cadence the scoring engine works on. The
+// chart asks for 1-minute candles, so the session length is derived rather than
+// hardcoded — per-candle drift and volatility scale with it, otherwise 1-minute
+// candles would inherit five minutes' worth of range each.
+export function generateIntradaySeries(symbol, refPrice, date = new Date(), stepMinutes = 5) {
   const dateKey = date.toISOString().slice(0, 10);
   const rand = mulberry32(hashSeed(symbol + dateKey));
+  const SESSION_MINUTES = 375;                       // 9:15 → 15:30
+  const totalCandles = Math.floor(SESSION_MINUTES / stepMinutes);
+  const scale = Math.sqrt(stepMinutes / 5);          // volatility grows with √time
 
   const prevClose = refPrice * (1 + (rand() - 0.5) * 0.02);
   const gapPct = (rand() - 0.48) * 2.2;            // gap between roughly -1.1% and +1.1%
   const open = prevClose * (1 + gapPct / 100);
-  const trendBias = (rand() - 0.5) * 0.003;         // per-candle drift
-  const vol = 0.0018 + rand() * 0.0025;             // per-candle volatility
+  const trendBias = (rand() - 0.5) * 0.003 * scale;  // per-candle drift
+  const vol = (0.0018 + rand() * 0.0025) * scale;    // per-candle volatility
 
   const candles = [];
   let price = open;
-  const baseVolume = Math.floor(50000 + rand() * 400000);
+  const baseVolume = Math.floor((50000 + rand() * 400000) * (stepMinutes / 5));
 
-  // 75 candles = full session 9:15 → 15:30; cut to "now" for live feel
+  // Full session cut to "now" for live feel
   const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const minsSinceOpen = (nowLocal.getHours() * 60 + nowLocal.getMinutes()) - (9 * 60 + 15);
-  const candleCount = Math.max(3, Math.min(75, Math.floor(minsSinceOpen / 5)));
+  const candleCount = Math.max(3, Math.min(totalCandles, Math.floor(minsSinceOpen / stepMinutes)));
 
   for (let i = 0; i < candleCount; i++) {
     const drift = trendBias * price;
@@ -98,7 +105,7 @@ export function generateIntradaySeries(symbol, refPrice, date = new Date()) {
     const high = Math.max(price, close) * (1 + rand() * vol);
     const low = Math.min(price, close) * (1 - rand() * vol);
     // U-shaped volume curve: heavy at open/close
-    const sessionPos = i / 75;
+    const sessionPos = i / totalCandles;
     const volumeMult = 1.6 - 2.2 * sessionPos + 2.0 * sessionPos * sessionPos + rand() * 0.4;
     candles.push({
       t: i,
@@ -329,35 +336,45 @@ export function scoreStock(ind, context = null) {
   let long = 0, short = 0;
   const reasons = [];
 
+  // Per-signal contributions, recorded alongside the prose so the UI can show
+  // *why* a score is what it is rather than asserting a number. `side` is which
+  // total the points landed on: BOTH for disqualifiers that hit long and short
+  // equally, INFO for notes that are deliberately not scored.
+  const breakdown = [];
+  const note = (text, points, side) => {
+    reasons.push(text);
+    breakdown.push({ label: text, points, side });
+  };
+
   // Strength relative to the rest of the universe. Without context this falls
   // back to the raw day change, which is the same thing when the market is flat.
   const relStrength = context ? round2(ind.changePct - context.marketChangePct) : ind.changePct;
 
-  if (ind.orbStatus === 'BREAKOUT_UP') { long += 25; reasons.push('Broke above 15-min opening range'); }
-  if (ind.orbStatus === 'BREAKOUT_DOWN') { short += 25; reasons.push('Broke below 15-min opening range'); }
+  if (ind.orbStatus === 'BREAKOUT_UP') { long += 25; note('Broke above 15-min opening range', 25, 'LONG'); }
+  if (ind.orbStatus === 'BREAKOUT_DOWN') { short += 25; note('Broke below 15-min opening range', 25, 'SHORT'); }
 
-  if (ind.aboveVwap && relStrength > 0) { long += 20; reasons.push(`Above VWAP and outperforming the market (+${relStrength}% relative)`); }
-  if (!ind.aboveVwap && relStrength < 0) { short += 20; reasons.push(`Below VWAP and underperforming the market (${relStrength}% relative)`); }
+  if (ind.aboveVwap && relStrength > 0) { long += 20; note(`Above VWAP and outperforming the market (+${relStrength}% relative)`, 20, 'LONG'); }
+  if (!ind.aboveVwap && relStrength < 0) { short += 20; note(`Below VWAP and underperforming the market (${relStrength}% relative)`, 20, 'SHORT'); }
 
-  if (ind.momentum30m > 0.3) { long += 15; reasons.push(`Strong 30-min momentum (+${ind.momentum30m}%)`); }
-  if (ind.momentum30m < -0.3) { short += 15; reasons.push(`Weak 30-min momentum (${ind.momentum30m}%)`); }
+  if (ind.momentum30m > 0.3) { long += 15; note(`Strong 30-min momentum (+${ind.momentum30m}%)`, 15, 'LONG'); }
+  if (ind.momentum30m < -0.3) { short += 15; note(`Weak 30-min momentum (${ind.momentum30m}%)`, 15, 'SHORT'); }
 
   // Volume confirms whichever way the stock is moving relative to its peers —
   // a surge on a stock lagging the market is distribution, not accumulation.
   if (ind.relVolume > 1.3) {
     if (relStrength >= 0) long += 15; else short += 15;
-    reasons.push(`Volume surge (${ind.relVolume}x session average)`);
+    note(`Volume surge (${ind.relVolume}x session average)`, 15, relStrength >= 0 ? 'LONG' : 'SHORT');
   }
 
-  if (ind.gapPct > 0.4 && ind.changePct > ind.gapPct) { long += 15; reasons.push(`Gap-up (+${ind.gapPct}%) holding and extending`); }
-  if (ind.gapPct < -0.4 && ind.changePct < ind.gapPct) { short += 15; reasons.push(`Gap-down (${ind.gapPct}%) with continued selling`); }
+  if (ind.gapPct > 0.4 && ind.changePct > ind.gapPct) { long += 15; note(`Gap-up (+${ind.gapPct}%) holding and extending`, 15, 'LONG'); }
+  if (ind.gapPct < -0.4 && ind.changePct < ind.gapPct) { short += 15; note(`Gap-down (${ind.gapPct}%) with continued selling`, 15, 'SHORT'); }
 
-  if (ind.rangePosition > 80) { long += 10; reasons.push('Price near day high (strength)'); }
-  if (ind.rangePosition < 20) { short += 10; reasons.push('Price near day low (weakness)'); }
+  if (ind.rangePosition > 80) { long += 10; note('Price near day high (strength)', 10, 'LONG'); }
+  if (ind.rangePosition < 20) { short += 10; note('Price near day low (weakness)', 10, 'SHORT'); }
 
   if (ind.sma20 != null && ind.sma50 != null) {
-    if (ind.ltp > ind.sma20 && ind.sma20 > ind.sma50) { long += 10; reasons.push('Uptrend: price above rising 20/50-day SMA'); }
-    if (ind.ltp < ind.sma20 && ind.sma20 < ind.sma50) { short += 10; reasons.push('Downtrend: price below falling 20/50-day SMA'); }
+    if (ind.ltp > ind.sma20 && ind.sma20 > ind.sma50) { long += 10; note('Uptrend: price above rising 20/50-day SMA', 10, 'LONG'); }
+    if (ind.ltp < ind.sma20 && ind.sma20 < ind.sma50) { short += 10; note('Downtrend: price below falling 20/50-day SMA', 10, 'SHORT'); }
   }
 
   // ---- live-only microstructure signals (null unless Kite is connected) ----
@@ -366,23 +383,23 @@ export function scoreStock(ind, context = null) {
   if (ind.orderImbalance != null && Math.abs(ind.orderImbalance) > 0.2) {
     const buyers = ind.orderImbalance > 0;
     if (buyers) long += 10; else short += 10;
-    reasons.push(`Order book ${buyers ? 'bid-heavy' : 'offer-heavy'} (${(ind.orderImbalance * 100).toFixed(0)}% imbalance)`);
+    note(`Order book ${buyers ? 'bid-heavy' : 'offer-heavy'} (${(ind.orderImbalance * 100).toFixed(0)}% imbalance)`, 10, buyers ? 'LONG' : 'SHORT');
   }
 
   // Liquidity and halt risk are disqualifiers, not directional signals — they
   // subtract from whichever side the setup is on rather than favouring one.
   if (ind.spreadPct != null && ind.spreadPct > 0.15) {
     long -= 15; short -= 15;
-    reasons.push(`⚠ Wide spread (${ind.spreadPct}%) — slippage will eat the edge`);
+    note(`⚠ Wide spread (${ind.spreadPct}%) — slippage will eat the edge`, -15, 'BOTH');
   }
 
   if (ind.circuitHeadroomPct != null && ind.circuitHeadroomPct < 2) {
     long -= 20; short -= 20;
-    reasons.push(`⚠ Within ${ind.circuitHeadroomPct}% of circuit limit — halt risk`);
+    note(`⚠ Within ${ind.circuitHeadroomPct}% of circuit limit — halt risk`, -20, 'BOTH');
   }
 
   if (ind.eventToday) {
-    reasons.push(`⚠ ${ind.eventToday}`); // informational only — deliberately not scored, event-day moves are unpredictable
+    note(`⚠ ${ind.eventToday}`, 0, 'INFO'); // informational only — deliberately not scored, event-day moves are unpredictable
   }
 
   // Volatility that does not suit an intraday hold is a disqualifier on either
@@ -396,9 +413,10 @@ export function scoreStock(ind, context = null) {
     const penalty = volPenalty;
     long -= penalty; short -= penalty;
     const tooQuiet = ind.atrPct < context.atrBand.low;
-    reasons.push(tooQuiet
+    note(tooQuiet
       ? `⚠ Unusually quiet (ATR ${ind.atrPct}% vs ${context.medianAtrPct}% median) — stop sits inside the noise`
-      : `⚠ Unusually volatile (ATR ${ind.atrPct}% vs ${context.medianAtrPct}% median) — 2R target is a stretch`);
+      : `⚠ Unusually volatile (ATR ${ind.atrPct}% vs ${context.medianAtrPct}% median) — 2R target is a stretch`,
+      -penalty, 'BOTH');
   }
 
   const direction = long >= short ? 'LONG' : 'SHORT';
@@ -433,6 +451,13 @@ export function scoreStock(ind, context = null) {
     rankScore: round2(clamp(score + edge, 0, 100)),
     relStrength,
     reasons,
+    // Only the winning side's signals actually built the score, so the UI can
+    // filter on `direction`. `rawTotal` is pre-clamp: when penalties push it
+    // below 0 or signals above 100, the arithmetic in the tooltip would not add
+    // up to the displayed score without it.
+    breakdown,
+    rawTotal: Math.max(long, short),
+    edge: round2(edge),
   };
 }
 
@@ -465,6 +490,9 @@ export function buildPick(stock, ind, scored) {
     score: scored.score,
     rankScore: scored.rankScore,
     reasons: scored.reasons,
+    breakdown: scored.breakdown,
+    rawTotal: scored.rawTotal,
+    edge: scored.edge,
     ltp: ind.ltp,
     changePct: ind.changePct,
     relStrength: scored.relStrength,
@@ -514,7 +542,24 @@ export function buildPick(stock, ind, scored) {
  * (from Kite's live quote API) overrides LTP/change with real-time data when
  * available.
  */
-export async function generateInsights(token, liveQuotes = null) {
+/**
+ * Accepts pinned symbols as an array or a comma-separated string, and keeps
+ * only names that actually exist in the universe. Unknown symbols are dropped
+ * rather than erroring: a stale pin in someone's browser should not break the
+ * whole insights response.
+ */
+export function normalisePinned(pinned) {
+  const raw = Array.isArray(pinned) ? pinned : String(pinned || '').split(',');
+  const known = new Set(UNIVERSE.map(s => s.symbol));
+  const out = [];
+  for (const item of raw) {
+    const sym = String(item || '').trim().toUpperCase();
+    if (known.has(sym) && !out.includes(sym)) out.push(sym);
+  }
+  return out.slice(0, UNIVERSE.length);
+}
+
+export async function generateInsights(token, liveQuotes = null, options = {}) {
   const snapshots = await Promise.all(UNIVERSE.map(async stock => {
     const [real, events, fundamentals] = await Promise.all([
       fetchRealSeries(token, stock.symbol).catch(() => null),
@@ -595,11 +640,36 @@ export async function generateInsights(token, liveQuotes = null) {
   // Ranked picks: top 5 by rank score, minimum displayed score 40. The cutoff
   // stays on the integer `score` so it keeps its plain meaning ("enough signals
   // fired"); only the ordering uses the continuous rank.
-  const picks = snapshots
+  const ranked = snapshots
     .filter(s => s.scored.score >= 40)
     .sort((a, b) => b.scored.rankScore - a.scored.rankScore)
-    .slice(0, 5)
-    .map(s => buildPick(s.stock, s.ind, s.scored));
+    .slice(0, 5);
+
+  // Pinned stocks stay on the board whatever they score. The list re-ranks
+  // every minute, so a stock being watched can vanish mid-observation — which
+  // is precisely when you most want to keep seeing it. Pins are per-request
+  // (the client owns them) so this stays stateless.
+  const pinned = normalisePinned(options.pinned);
+  const pinnedSet = new Set(pinned);
+  const rankedSymbols = new Set(ranked.map(s => s.stock.symbol));
+  const pinnedExtra = pinned
+    .filter(sym => !rankedSymbols.has(sym))
+    .map(sym => snapshots.find(s => s.stock.symbol === sym))
+    .filter(Boolean);
+
+  const picks = [...ranked, ...pinnedExtra]
+    .map(s => ({
+      ...buildPick(s.stock, s.ind, s.scored),
+      pinned: pinnedSet.has(s.stock.symbol),
+      // A pinned stock held on screen despite failing the screen must say so.
+      // Without this the card looks identical to one that earned its place,
+      // which would misrepresent a 20-score stock as a setup worth taking.
+      belowCutoff: s.scored.score < 40,
+      outsideTop: !rankedSymbols.has(s.stock.symbol) && s.scored.score >= 40,
+    }))
+    // Pinned first so watched names hold a stable position instead of moving
+    // under the cursor; rank orders within each group.
+    .sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.rankScore - a.rankScore));
 
   // Market breadth
   const advances = snapshots.filter(s => s.ind.changePct > 0).length;

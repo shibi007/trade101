@@ -3,9 +3,9 @@
   "configurations": [
     {
       "name": "trade101-server",
-      "runtimeExecutable": "C:\\Users\\schakrav\\scoop\\apps\\nodejs-lts\\current\\node.exe",
-      "runtimeArgs": ["server/index.js"],
-      "port": 8081
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["nodemon", "--watch", "server", "--ext", "js,json", "server/index.js"],
+      "port": 5000
     }
   ]
 }

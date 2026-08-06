@@ -45,6 +45,7 @@ import kiteRoutes from './routes/kite.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
 import { requireAuth, getSession, parseCookies, SESSION_COOKIE, hasUsers, createUser } from './services/authService.js';
+import { attachTickerHub } from './services/tickerHub.js';
 
 // Bootstrap the first user from env vars — needed on hosts with ephemeral
 // filesystems (e.g. Render) where data/users.json doesn't survive deploys.
@@ -81,36 +82,10 @@ app.use((req, res, next) => {
 });
 app.use(express.static(join(__dirname, '..', 'public')));
 
-// WebSocket connection handler
-wss.on('connection', (ws) => {
-  console.log('New WebSocket connection');
-
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      console.log('Received:', data);
-
-      // Handle different message types
-      if (data.type === 'SUBSCRIBE_PRICE') {
-        ws.send(JSON.stringify({
-          type: 'SUBSCRIPTION_CONFIRMED',
-          symbol: data.symbol,
-          timestamp: new Date().toISOString(),
-        }));
-      }
-    } catch (error) {
-      console.error('WebSocket error:', error);
-    }
-  });
-
-  ws.on('close', () => {
-    console.log('WebSocket connection closed');
-  });
-
-  ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
-  });
-});
+// Live quotes: authenticates the socket against the session cookie, then
+// streams Kite ticks to the browser. Replaces the previous echo handler, which
+// confirmed subscriptions it never fulfilled.
+attachTickerHub(wss);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

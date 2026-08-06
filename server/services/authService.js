@@ -189,7 +189,10 @@ export function createSession(username) {
     isAdmin: Boolean(user?.isAdmin),
     has2fa: Boolean(user?.totpSecret),
     expires: Date.now() + SESSION_TTL_MS,
-    kite: { apiKey: null, apiSecret: null, accessToken: null, userId: null, userName: null, connectedAt: null, lastError: null },
+    // `kite` is deliberately absent: kiteService creates it on first access and
+    // hydrates it from saved credentials / env vars. Pre-seeding it with nulls
+    // here made that hydration unreachable, which silently disabled both the
+    // KITE_API_KEY env var and anything saved to disk.
   });
   return token;
 }

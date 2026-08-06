@@ -298,9 +298,16 @@
         <input id="kite-key" placeholder="Your Kite Connect API key" autocomplete="off">
         <label for="kite-secret">API Secret</label>
         <input id="kite-secret" type="password" placeholder="Your Kite Connect API secret" autocomplete="off">
-        <p class="muted" style="font-size:12px">Credentials are held in this local server's memory only — never persisted or sent anywhere except api.kite.trade.</p>
-        <button class="btn" id="kite-save">Save & get login link</button>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer" id="kite-remember-row">
+          <input type="checkbox" id="kite-remember" checked style="width:auto;margin:0">
+          <span>Remember on this server</span>
+        </label>
+        <p class="muted" style="font-size:12px" id="kite-storage-note"></p>
+        <button class="btn" id="kite-save">Save &amp; get login link</button>
+        <button class="btn secondary" id="kite-edit" style="display:none">Edit credentials</button>
+        <button class="btn secondary" id="kite-cancel-edit" style="display:none">Cancel</button>
         <button class="btn" id="kite-login" disabled>Login with Kite →</button>
+        <button class="btn secondary" id="kite-forget" style="display:none">Forget saved credentials</button>
         <button class="btn secondary" id="kite-disconnect" style="display:none">Disconnect</button>
       </div>
       <div class="card">
@@ -1037,8 +1044,42 @@ function renderInsights(d) {
 // ---------- Kite Connect ----------
 $('#redirect-url').textContent = location.origin + '/api/kite/callback';
 
+// Saved credentials are locked: the fields show what is stored but cannot be
+// changed until Edit is pressed. Without that, the secret field sits empty next
+// to a working setup and one stray keystroke plus Save silently replaces a
+// good credential with a broken one.
+let kiteEditing = false;
+let kiteStatus = null;
+
+function renderKiteForm() {
+  const st = kiteStatus || {};
+  const locked = st.persisted && !kiteEditing;
+
+  $('#kite-key').disabled = locked;
+  $('#kite-secret').disabled = locked;
+  $('#kite-remember-row').style.display = locked ? 'none' : 'flex';
+
+  if (locked) {
+    $('#kite-key').value = st.apiKeyMasked || '';
+    $('#kite-secret').value = '';
+    $('#kite-secret').placeholder = '•••••••• saved';
+  } else if (!kiteEditing) {
+    $('#kite-secret').placeholder = 'Your Kite Connect API secret';
+  }
+
+  $('#kite-save').style.display = locked ? 'none' : 'inline-block';
+  $('#kite-edit').style.display = locked ? 'inline-block' : 'none';
+  $('#kite-cancel-edit').style.display = kiteEditing ? 'inline-block' : 'none';
+  $('#kite-forget').style.display = st.persisted ? 'inline-block' : 'none';
+
+  $('#kite-storage-note').innerHTML = st.persisted
+    ? 'Saved on this server, so they survive a restart. Stored in plain text in <code>data/kite.json</code> (gitignored) — anyone who can read that file can read your API secret.'
+    : 'Ticked, credentials are written to <code>data/kite.json</code> on this server so you do not re-enter them after a restart. Unticked, they live in memory only and are lost when the server stops.';
+}
+
 async function loadKiteStatus() {
   const st = await (await api('/api/kite/status')).json();
+  kiteStatus = st;
   const chip = $('#kite-chip');
   if (st.connected) {
     chip.innerHTML = `<span class="dot live" style="background:var(--green);color:var(--green)"></span>Kite: ${st.userName || st.userId}`;
@@ -1047,20 +1088,53 @@ async function loadKiteStatus() {
     $('#kite-login').disabled = true;
   } else {
     chip.innerHTML = `<span class="dot" style="background:var(--${st.configured ? 'amber' : 'muted'})"></span>Kite: ${st.configured ? 'configured, not logged in' : 'not connected'}`;
-    $('#kite-status-text').textContent = st.configured
-      ? `Key ${st.apiKeyMasked} saved. Click "Login with Kite" to start a session.` + (st.lastError ? ` Last error: ${st.lastError}` : '')
+    $('#kite-status-text').innerHTML = st.configured
+      ? `Key <b>${st.apiKeyMasked}</b> ${st.persisted ? 'saved on this server' : 'set for this session'}. Click "Login with Kite" to start a session.` + (st.lastError ? ` Last error: ${st.lastError}` : '')
       : 'Not configured. Add your Kite Connect app credentials to stream live NSE data into the insights engine.';
     $('#kite-disconnect').style.display = 'none';
     $('#kite-login').disabled = !st.configured;
   }
+  renderKiteForm();
 }
 
 $('#kite-save').onclick = async () => {
   const apiKey = $('#kite-key').value.trim(), apiSecret = $('#kite-secret').value.trim();
   if (!apiKey || !apiSecret) return alert('Enter both API key and secret');
-  const r = await api('/api/kite/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({apiKey, apiSecret}) });
-  if (r.ok) { $('#kite-secret').value = ''; await loadKiteStatus(); }
+  const remember = $('#kite-remember').checked;
+  const r = await api('/api/kite/config', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey, apiSecret, remember }),
+  });
+  if (r.ok) { $('#kite-secret').value = ''; kiteEditing = false; await loadKiteStatus(); }
   else alert((await r.json()).error || 'Failed to save');
+};
+
+$('#kite-edit').onclick = () => {
+  kiteEditing = true;
+  // Clear rather than pre-fill: the masked key is not the real one, and saving
+  // it back would store the mask as the credential.
+  $('#kite-key').value = '';
+  $('#kite-secret').value = '';
+  $('#kite-secret').placeholder = 'Re-enter your API secret';
+  $('#kite-remember').checked = true;
+  renderKiteForm();
+  $('#kite-key').focus();
+};
+
+$('#kite-cancel-edit').onclick = () => {
+  kiteEditing = false;
+  $('#kite-secret').value = '';
+  renderKiteForm();
+};
+
+$('#kite-forget').onclick = async () => {
+  if (!confirm('Forget the saved API key and secret on this server? You will need to enter them again.')) return;
+  const r = await api('/api/kite/config', { method: 'DELETE' });
+  if (r.ok) {
+    kiteEditing = false;
+    $('#kite-key').value = ''; $('#kite-secret').value = '';
+    await loadKiteStatus();
+  } else alert((await r.json()).error || 'Failed to forget credentials');
 };
 
 $('#kite-login').onclick = async () => {

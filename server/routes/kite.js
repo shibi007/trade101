@@ -1,6 +1,6 @@
 import express from 'express';
 import {
-  setCredentials, getStatus, getLoginUrl, completeSession,
+  setCredentials, forgetCredentials, getStatus, getLoginUrl, completeSession,
   disconnect, getQuotes,
 } from '../services/kiteService.js';
 import { parseCookies, SESSION_COOKIE } from '../services/authService.js';
@@ -17,16 +17,28 @@ router.get('/status', (req, res) => {
   res.json(getStatus(token));
 });
 
-// Save API key + secret (held in session only, per-user)
+// Save API key + secret. Session-only unless `remember` is set, in which case
+// they are written to data/kite.json (gitignored) under this username.
 router.post('/config', (req, res) => {
   const token = getToken(req);
-  const { apiKey, apiSecret } = req.body;
+  const { apiKey, apiSecret, remember } = req.body;
   if (!apiKey || !apiSecret) {
     return res.status(400).json({ error: 'apiKey and apiSecret are required' });
   }
   try {
-    setCredentials(token, apiKey, apiSecret);
+    setCredentials(token, apiKey, apiSecret, Boolean(remember));
     res.json({ success: true, status: getStatus(token), loginUrl: getLoginUrl(token) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Forget saved credentials for this user.
+router.delete('/config', (req, res) => {
+  try {
+    const token = getToken(req);
+    forgetCredentials(token);
+    res.json({ success: true, status: getStatus(token) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

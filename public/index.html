@@ -295,6 +295,7 @@
     <p class="alert-bar" id="alert-bar">
       <span id="live-status">○ Live ticks off</span>
       <button id="alerts-toggle">🔔 Enable alerts</button>
+      <span id="leverage-control" class="live-chip"></span>
       <span id="alert-summary"></span>
     </p>
     <p class="pinned-note" id="pinned-note"></p>
@@ -498,6 +499,10 @@ const GLOSSARY = {
     'You pinned this stock, so it stays on the board — but it scores under 40 and would not otherwise be shown. It is here for continuity of watching, not because the screener rates the setup.'],
   'pinned-outside': ['Pinned, outside top 5', null,
     'You pinned this stock. It clears the 40-point cutoff but is not among today\'s five highest-ranked setups, so it would normally be off the board.'],
+  leverage: ['Margin', 'Intraday Leverage (MIS multiplier)',
+    'How much buying power your broker gives you intraday. At 4x, ₹3 lakh controls ₹12 lakh of stock. It multiplies losses exactly as it multiplies size — the stop is what protects you, not the leverage. Set to 1x for cash trades. This is your own setting: it is not read from your account, because margins vary by product and by stock.'],
+  sizecap: ['Capped by margin', null,
+    'Risking 2% of capital on this stop would need more stock than your buying power allows, so the quantity has been reduced to what you can actually fund. The trade therefore risks less than 2% — which is the safe direction to be wrong in.'],
   atrband: ['Tradeable volatility band', null,
     'The range of volatility that suits an intraday hold, anchored to the median of today\'s universe rather than a fixed percentage. Too quiet and the stop sits inside the noise; too wild and a 2R target is out of reach within the session.'],
 };
@@ -866,6 +871,62 @@ function skeletonBreadth() {
     `<div class="card skel skel-card" style="height:76px;animation-delay:${i*80}ms"></div>`).join('');
 }
 
+// ---------- position sizing ----------
+//
+// Two independent limits, and the smaller one wins:
+//
+//  1. Risk — never lose more than `riskPct` of capital if the stop is hit.
+//  2. Margin — the position must actually be fundable.
+//
+// Only the first was applied, and it has no upper bound: quantity is the risk
+// budget divided by risk-per-share, so a quiet stock with a small ATR produces
+// an enormous quantity. At 4x on ₹3.2L that reached ₹34 lakh of stock against
+// ₹12.9L of buying power — a size that cannot be entered, quoted as if it
+// could.
+//
+// Leverage is the user's own MIS multiplier. It is deliberately not guessed
+// from the funds payload: product and per-stock margins vary, and a number
+// quietly assumed here would size real orders.
+const RISK_PCT = 0.02;
+let leverage = Number(localStorage.getItem('leverage')) || 1;
+
+function positionSize(price, riskPerShare, capital, lev) {
+  if (!(price > 0) || !(riskPerShare > 0) || !(capital > 0)) return null;
+
+  const riskBudget = capital * RISK_PCT;
+  const buyingPower = capital * lev;
+
+  const byRisk = Math.floor(riskBudget / riskPerShare);
+  const byMargin = Math.floor(buyingPower / price);
+  const qty = Math.max(0, Math.min(byRisk, byMargin));
+
+  return {
+    qty, byRisk, byMargin,
+    boundBy: byMargin < byRisk ? 'margin' : 'risk',
+    notional: qty * price,
+    riskAtStop: qty * riskPerShare,
+    riskBudget,
+    buyingPower,
+    // When margin is the binding constraint the trade no longer risks the full
+    // 2% — saying "risking 2%" would then be false.
+    actualRiskPct: capital > 0 ? (qty * riskPerShare) / capital * 100 : 0,
+  };
+}
+
+function renderLeverageControl() {
+  const el = $('#leverage-control');
+  if (!el) return;
+  el.innerHTML = `<span data-tip="leverage" tabindex="0">Margin</span>
+    <select id="leverage-select" style="width:auto;margin:0;padding:3px 7px;font-size:12px">
+      ${[1, 2, 3, 4, 5].map(v => `<option value="${v}"${v === leverage ? ' selected' : ''}>${v}x</option>`).join('')}
+    </select>`;
+  $('#leverage-select').onchange = e => {
+    leverage = Number(e.target.value) || 1;
+    localStorage.setItem('leverage', String(leverage));
+    if (latest) renderPicks(latest);
+  };
+}
+
 // ---------- pinned stocks ----------
 //
 // The picks list re-ranks every 60 seconds, so a stock being watched can drop
@@ -1056,7 +1117,16 @@ function renderPicks(d) {
         <div class="t2">${tip('target2', 'Target 2')}<b>₹${fmt(p.levels.target2)}</b><span class="rr" style="display:inline" data-tip="risk" tabindex="0">2R</span>
           ${p.levels.target2Blocked ? `<span class="blocked" data-tip="${p.direction === 'LONG' ? 'resistance1' : 'support1'}" tabindex="0">⚠ ${p.direction === 'LONG' ? 'Resistance 1' : 'Support 1'} sits before this level</span>` : ''}</div>
       </div>
-      <p class="plan-note">Risk ₹${fmt(p.levels.riskPerShare)}/share · qty risking 2% of ${capitalLabel} ≈ ${Math.floor((capital * 0.02) / p.levels.riskPerShare)} shares · levels are 1.5×${tip('atr', 'Average True Range')} calculations, not advice</p>`}
+      ${(() => {
+        const s = positionSize(p.levels.referenceEntry, p.levels.riskPerShare, capital, leverage);
+        if (!s) return `<p class="plan-note">Risk ₹${fmt(p.levels.riskPerShare)}/share · levels are 1.5×${tip('atr', 'Average True Range')} calculations, not advice</p>`;
+        const capped = s.boundBy === 'margin';
+        return `<p class="plan-note">
+          Risk ₹${fmt(p.levels.riskPerShare)}/share · <b>${s.qty} shares</b> = ₹${fmt(Math.round(s.notional))} at ${leverage}x on ${capitalLabel}
+          · ₹${fmt(Math.round(s.riskAtStop))} at risk (${s.actualRiskPct.toFixed(2)}% of capital)
+          ${capped ? `<span class="blocked" data-tip="sizecap" tabindex="0">⚠ capped by margin — a 2% risk would need ${s.byRisk} shares (₹${fmt(Math.round(s.byRisk * p.levels.referenceEntry))}), beyond your ₹${fmt(Math.round(s.buyingPower))} buying power</span>` : ''}
+          · levels are 1.5×${tip('atr', 'Average True Range')} calculations, not advice</p>`;
+      })()}`}
       <div class="levels">
         <div>${tip('vwap', 'Volume Weighted Average Price')}₹${fmt(p.levels.vwap)}</div>
         <div>${tip('pivot', 'Pivot point')}₹${fmt(p.levels.pivot)}</div>
@@ -1645,6 +1715,7 @@ $('#alerts-toggle').onclick = async () => {
 };
 
 renderAlertToggle();
+renderLeverageControl();
 renderGuide();   // static content — no need to wait for auth or a data load
 loadUser().then(ok => { if (ok) { loadMarketStatus(); loadKiteStatus(); loadInsights(); connectTicks(); } });
 setInterval(loadInsights, 60_000);       // refresh picks every minute

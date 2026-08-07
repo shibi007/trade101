@@ -631,6 +631,11 @@ export function buildPick(stock, ind, scored) {
  * (from Kite's live quote API) overrides LTP/change with real-time data when
  * available.
  */
+// Shown by default. Wider than the original 5: with a 19-name universe five was
+// most of what qualified, but the cutoff is what decides quality — the limit
+// only decides how much of the qualifying set is displayed.
+export const DEFAULT_PICK_LIMIT = 20;
+
 /**
  * Accepts pinned symbols as an array or a comma-separated string, and keeps
  * only names that actually exist in the universe. Unknown symbols are dropped
@@ -726,13 +731,16 @@ export async function generateInsights(token, liveQuotes = null, options = {}) {
   // a notional. Null when disconnected — never blocks the response.
   const funds = await getMargins(token).catch(() => null);
 
-  // Ranked picks: top 5 by rank score, minimum displayed score 40. The cutoff
+  // Ranked picks by rank score, minimum displayed score 40. The cutoff
   // stays on the integer `score` so it keeps its plain meaning ("enough signals
   // fired"); only the ordering uses the continuous rank.
+  // How many setups to show. Bounded rather than free: the cutoff still applies,
+  // so asking for more than qualify simply returns fewer.
+  const limit = Math.max(1, Math.min(50, Number(options.limit) || DEFAULT_PICK_LIMIT));
   const ranked = snapshots
     .filter(s => s.scored.score >= 40)
     .sort((a, b) => b.scored.rankScore - a.scored.rankScore)
-    .slice(0, 5);
+    .slice(0, limit);
 
   // Pinned stocks stay on the board whatever they score. The list re-ranks
   // every minute, so a stock being watched can vanish mid-observation — which

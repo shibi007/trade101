@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
 
     // Pins live in the client's localStorage and ride along per request, so the
     // server stays stateless and pins survive without a user-data store.
-    const insights = await generateInsights(token, liveQuotes, { pinned: req.query.pinned });
+    const insights = await generateInsights(token, liveQuotes, { pinned: req.query.pinned, limit: req.query.limit });
 
     const totalMs = Date.now() - startedAt;
     if (totalMs > 10_000) {
@@ -39,7 +39,7 @@ router.get('/picks', async (req, res) => {
   try {
     const token = parseCookies(req)[SESSION_COOKIE];
     const liveQuotes = await getUniverseQuotes(token, UNIVERSE.map(s => s.symbol));
-    const insights = await generateInsights(token, liveQuotes, { pinned: req.query.pinned });
+    const insights = await generateInsights(token, liveQuotes, { pinned: req.query.pinned, limit: req.query.limit });
     res.json({
       generatedAt: insights.generatedAt,
       dataSource: insights.dataSource,

@@ -384,6 +384,47 @@ export async function getInstrumentToken(token, symbol) {
   return instrumentCache.bySymbol.get(symbol) || null;
 }
 
+/**
+ * Every NSE equity trading symbol Kite knows about (~2000).
+ *
+ * The master list is already downloaded for token resolution, so scanning the
+ * whole market costs nothing extra here — the cost is in quoting them, which
+ * getQuotesBatched handles.
+ */
+export async function getAllEquitySymbols(token) {
+  if (Date.now() - instrumentCache.fetchedAt > INSTRUMENT_CACHE_TTL_MS || instrumentCache.bySymbol.size === 0) {
+    await throttled(() => refreshInstruments(token));
+  }
+  return [...instrumentCache.bySymbol.keys()];
+}
+
+// Kite accepts up to 500 instruments per /quote call. Chunking at 250 leaves
+// headroom for long symbol names in the query string, which is what actually
+// bounds the request — a few thousand symbols still costs under ten calls.
+const QUOTE_BATCH_SIZE = 250;
+
+/**
+ * Quote many instruments, in as few calls as the API allows.
+ *
+ * This is what makes scanning the whole market practical: one call covers 250
+ * stocks, where historical candles cost two throttled calls *per stock*. A
+ * failed batch is skipped rather than aborting the scan — losing 250 names is
+ * much better than losing all of them.
+ */
+export async function getQuotesBatched(token, instruments) {
+  const out = {};
+  for (let i = 0; i < instruments.length; i += QUOTE_BATCH_SIZE) {
+    const batch = instruments.slice(i, i + QUOTE_BATCH_SIZE);
+    try {
+      const data = await throttled(() => getQuotes(token, batch));
+      Object.assign(out, data || {});
+    } catch {
+      // Skip this batch; the rest of the scan is still worth having.
+    }
+  }
+  return out;
+}
+
 // ---------- historical candles, cached per (symbol, interval) with a short TTL ----------
 const historicalCache = new Map(); // key -> { fetchedAt, candles }
 const HISTORICAL_CACHE_TTL_MS = { '5minute': 55_000, day: 6 * 60 * 60 * 1000 };

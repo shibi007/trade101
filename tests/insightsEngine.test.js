@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  DEFAULT_PICK_LIMIT,
   UNIVERSE,
   buildPick,
   buildUniverseContext,
@@ -243,7 +244,7 @@ test('scoreStock still works without a context', () => {
 test('generateInsights returns ranked, tie-free picks', async () => {
   const insights = await generateInsights(null, null);
 
-  assert.ok(insights.picks.length <= 5);
+  assert.ok(insights.picks.length <= DEFAULT_PICK_LIMIT);
   assert.ok(insights.context, 'baselines must be exposed');
   assert.equal(typeof insights.context.marketChangePct, 'number');
 
@@ -349,6 +350,32 @@ test('a universe with unmeasurable stocks still produces finite scores', () => {
     const s = scoreStock(ind, ctx);
     assert.ok(Number.isFinite(s.score), `score ${s.score}`);
     assert.ok(Number.isFinite(s.rankScore), 'a NaN rankScore breaks the sort silently');
+  }
+});
+
+// ---------- pick limit ----------
+
+test('more than five picks are returned by default', async () => {
+  const r = await generateInsights(null, null);
+  assert.ok(r.picks.length > 5, `only ${r.picks.length} picks — the old cap of 5 is still in force`);
+});
+
+test('the pick limit is configurable and bounded', async () => {
+  const three = await generateInsights(null, null, { limit: 3 });
+  assert.equal(three.picks.length, 3);
+
+  // Absurd or malformed limits must not return the whole universe or crash.
+  const huge = await generateInsights(null, null, { limit: 9999 });
+  assert.ok(huge.picks.length <= 50);
+  const junk = await generateInsights(null, null, { limit: 'abc' });
+  assert.ok(junk.picks.length > 0, 'a bad limit should fall back to the default');
+});
+
+test('the score cutoff still governs quality, not the limit', async () => {
+  // Raising the limit must never admit a setup that failed the screen.
+  const r = await generateInsights(null, null, { limit: 50 });
+  for (const p of r.picks) {
+    if (!p.pinned) assert.ok(p.score >= 40, `${p.symbol} scored ${p.score}`);
   }
 });
 

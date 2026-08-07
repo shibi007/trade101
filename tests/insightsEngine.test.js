@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
   UNIVERSE,
+  buildPick,
   buildUniverseContext,
   computeIndicators,
   generateInsights,
@@ -264,6 +265,91 @@ test('the whole universe is ranked without ties', () => {
     new Set(ranks).size, ranks.length,
     'every stock should get a distinct rank; ties fall back to array order',
   );
+});
+
+// ---------- early session: too little data to measure volatility ----------
+
+/** A series with `n` candles, as the first minutes after the open produce. */
+function shortSeries(n, price = 1000) {
+  return {
+    symbol: 'TEST', prevClose: price, open: price,
+    candles: Array.from({ length: n }, (_, i) => ({
+      t: i, open: price, high: price + 2, low: price - 2, close: price, volume: 1000,
+    })),
+  };
+}
+
+test('a single candle yields a usable ATR, not NaN', () => {
+  // Three minutes after the open there is one 5-minute candle. True range needs
+  // a previous close, so the ATR loop could not run and divided 0 by 0.
+  const ind = computeIndicators(shortSeries(1));
+  assert.ok(ind.atr === null || Number.isFinite(ind.atr), `got ${ind.atr}`);
+  assert.ok(!Number.isNaN(ind.atr), 'NaN serialises to null and blanks the whole trade plan');
+  assert.equal(ind.atr, 4, "one candle's own range is the only range information available");
+});
+
+test('atrPct is null rather than NaN when ATR is unknown', () => {
+  const ind = computeIndicators(shortSeries(0));
+  assert.equal(ind.atr, null);
+  assert.equal(ind.atrPct, null, 'a NaN here poisons the universe median and every z-score');
+});
+
+test('a zero-range candle is treated as no ATR, not a zero stop', () => {
+  const flat = {
+    symbol: 'TEST', prevClose: 100, open: 100,
+    candles: [{ t: 0, open: 100, high: 100, low: 100, close: 100, volume: 0 }],
+  };
+  const ind = computeIndicators(flat);
+  assert.equal(ind.atr, null, 'a zero range would put the stop exactly at entry');
+});
+
+test('buildPick refuses to invent levels without ATR', () => {
+  const ind = { ...computeIndicators(shortSeries(0)), ltp: 1000 };
+  const scored = scoreStock(ind);
+  const pick = buildPick({ symbol: 'TEST', name: 'Test', sector: 'IT' }, ind, scored);
+
+  assert.equal(pick.levelsAvailable, false);
+  assert.ok(pick.levelsUnavailableReason, 'must say why, not just blank the fields');
+  for (const k of ['stopLoss', 'target1', 'target2', 'riskPerShare']) {
+    assert.equal(pick.levels[k], null, `${k} must be explicitly null`);
+  }
+});
+
+test('a pick with ATR still carries a full plan', () => {
+  const ind = { ...computeIndicators(shortSeries(20)), ltp: 1000 };
+  const scored = scoreStock(ind);
+  const pick = buildPick({ symbol: 'TEST', name: 'Test', sector: 'IT' }, ind, scored);
+
+  assert.equal(pick.levelsAvailable, true);
+  assert.ok(pick.levels.stopLoss > 0);
+  assert.ok(pick.levels.riskPerShare > 0, 'a zero risk would divide the position size by ~zero');
+});
+
+test('no pick ever reports a zero or null risk per share', () => {
+  // The position-size formula divides by this. The old floor of 0.01 turned an
+  // unknown risk into a six-figure share count on a small account.
+  for (const n of [0, 1, 2, 5, 20]) {
+    const ind = { ...computeIndicators(shortSeries(n)), ltp: 1000 };
+    const pick = buildPick({ symbol: 'T', name: 'T', sector: 'IT' }, ind, scoreStock(ind));
+    const r = pick.levels.riskPerShare;
+    assert.ok(r === null || r > 0, `${n} candles gave riskPerShare ${r}`);
+    if (r === null) assert.equal(pick.levelsAvailable, false, 'null risk must be flagged, not silent');
+  }
+});
+
+test('a universe with unmeasurable stocks still produces finite scores', () => {
+  const inds = [
+    computeIndicators(shortSeries(0)),
+    computeIndicators(shortSeries(1)),
+    computeIndicators(shortSeries(20)),
+  ];
+  const ctx = buildUniverseContext(inds);
+  assert.ok(Number.isFinite(ctx.medianAtrPct), `median was ${ctx.medianAtrPct}`);
+  for (const ind of inds) {
+    const s = scoreStock(ind, ctx);
+    assert.ok(Number.isFinite(s.score), `score ${s.score}`);
+    assert.ok(Number.isFinite(s.rankScore), 'a NaN rankScore breaks the sort silently');
+  }
 });
 
 // ---------- pinned stocks ----------

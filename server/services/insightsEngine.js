@@ -211,6 +211,29 @@ async function fetchRealSeries(token, symbol) {
 // ---------- indicator computations ----------
 export function computeIndicators(series) {
   const { candles, prevClose, open } = series;
+
+  // An empty series threw on `candles[length-1].close`. Because generateInsights
+  // maps over the universe without isolating failures, one symbol with no
+  // candles — a fresh listing, a halted stock, or any symbol at 9:15:00 sharp —
+  // took down the entire /api/insights response with a 500. The board showed
+  // nothing rather than the other eighteen stocks that were fine.
+  if (!Array.isArray(candles) || candles.length === 0) {
+    const ref = prevClose ?? open ?? null;
+    return {
+      ltp: ref, prevClose: prevClose ?? null, open: open ?? null,
+      dayHigh: null, dayLow: null,
+      vwap: ref, aboveVwap: false,
+      orHigh: null, orLow: null, orbStatus: 'INSIDE',
+      momentum30m: 0, relVolume: 0, atr: null, atrPct: null,
+      pivot: null, r1: null, s1: null,
+      gapPct: 0, changePct: 0, rangePosition: 50,
+      volume: 0,
+      sma20: series.sma20 ?? null, sma50: series.sma50 ?? null, sma200: series.sma200 ?? null,
+      real: series.real ?? false,
+      noData: true,
+    };
+  }
+
   const last = candles[candles.length - 1];
   const ltp = last.close;
 
@@ -243,14 +266,33 @@ export function computeIndicators(series) {
   const recentVol = candles.slice(-3).reduce((s, c) => s + c.volume, 0) / 3;
   const relVolume = round2(recentVol / avgVol);
 
-  // ATR (14) on 5-min candles
-  let atrSum = 0, atrN = 0;
-  for (let i = Math.max(1, candles.length - 14); i < candles.length; i++) {
-    const c = candles[i], p = candles[i - 1];
-    atrSum += Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
-    atrN++;
+  // ATR (14) on 5-min candles.
+  //
+  // True range needs a previous close, so with a single candle the loop below
+  // cannot run. It used to divide 0 by 0 and yield NaN, which JSON turns into
+  // null — every derived level silently became blank and the position-size
+  // formula divided by a floor of 0.01, sizing a ₹3 lakh account into hundreds
+  // of thousands of shares. In the first minutes of a session that was the
+  // normal path, not an edge case.
+  //
+  // With one candle its own high-low is the only range information that exists,
+  // so use it. With none, ATR is genuinely unknown and must say so rather than
+  // produce a number.
+  let atr = null;
+  if (candles.length === 1) {
+    atr = round2(candles[0].high - candles[0].low);
+  } else if (candles.length > 1) {
+    let atrSum = 0, atrN = 0;
+    for (let i = Math.max(1, candles.length - 14); i < candles.length; i++) {
+      const c = candles[i], p = candles[i - 1];
+      atrSum += Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+      atrN++;
+    }
+    atr = atrN > 0 ? round2(atrSum / atrN) : null;
   }
-  const atr = round2(atrSum / atrN);
+  // A zero range (an untraded or frozen stock) is as unusable as no range at
+  // all — it would put the stop exactly at entry.
+  if (!(atr > 0)) atr = null;
 
   // Classic pivots from prior day (approximated)
   const pivot = round2((prevClose * 1.005 + prevClose * 0.995 + prevClose) / 3);
@@ -268,7 +310,9 @@ export function computeIndicators(series) {
     momentum30m, relVolume, atr,
     // ATR as a share of price, so volatility is comparable across a ₹160 and a
     // ₹12,000 stock. Raw ATR is not: it scales with price, not with tradeability.
-    atrPct: round2((atr / ltp) * 100),
+    // Null propagates rather than becoming NaN — a NaN here poisons the universe
+    // median and every z-score computed from it.
+    atrPct: atr == null ? null : round2((atr / ltp) * 100),
     pivot, r1, s1,
     gapPct, changePct, rangePosition,
     volume: cumV,
@@ -298,7 +342,9 @@ export function buildUniverseContext(indicators) {
   // taken on the already-relative values.
   const relStrengths = changes.map(c => c - marketChangePct);
   const relVolumes = indicators.map(i => i.relVolume);
-  const atrPcts = indicators.map(i => i.atrPct);
+  // Stocks whose ATR could not be computed carry no volatility information —
+  // including them would drag the median toward whatever null sorts as.
+  const atrPcts = indicators.map(i => i.atrPct).filter(v => v != null && Number.isFinite(v));
 
   // The tradeable volatility band is expressed as a multiple of the universe
   // median rather than as fixed percentages. Absolute bands quoted for daily
@@ -405,7 +451,10 @@ export function scoreStock(ind, context = null) {
   // Volatility that does not suit an intraday hold is a disqualifier on either
   // side, like spread and circuit risk — the setup may be real but the trade
   // is not takeable at a sane stop distance.
-  const volFit = context ? volatilityFit(ind.atrPct, context.atrBand) : 1;
+  // No ATR means no volatility judgement to make. Scoring it as 1 (a perfect
+  // fit) matches the no-context case: absence of information must not read as
+  // evidence either for or against the setup.
+  const volFit = (context && ind.atrPct != null) ? volatilityFit(ind.atrPct, context.atrBand) : 1;
   const volPenalty = Math.round((1 - volFit) * 15);
   // Only flag it when it actually costs the stock something — a name a hair
   // outside the band does not deserve a warning next to its name.
@@ -463,9 +512,48 @@ export function scoreStock(ind, context = null) {
 
 export function buildPick(stock, ind, scored) {
   const { direction } = scored;
-  const slDistance = round2(ind.atr * 1.5);
   const entry = ind.ltp;
   const isLong = direction === 'LONG';
+
+  // Without ATR there is no defensible stop distance, so no plan can be quoted.
+  // Returning nulls with a flag is the only honest option: computing levels
+  // from a missing ATR produced NaN, which serialised to null and then drove a
+  // position-size formula that floored the divisor at 0.01 — turning "unknown
+  // risk" into "buy 644,865 shares". A blank field someone might squint past is
+  // dangerous; the UI uses this flag to refuse to size the trade at all.
+  const levelsAvailable = ind.atr != null && ind.atr > 0;
+  if (!levelsAvailable) {
+    return {
+      symbol: stock.symbol,
+      name: stock.name,
+      sector: stock.sector,
+      direction,
+      score: scored.score,
+      rankScore: scored.rankScore,
+      reasons: scored.reasons,
+      breakdown: scored.breakdown,
+      rawTotal: scored.rawTotal,
+      edge: scored.edge,
+      ltp: ind.ltp,
+      changePct: ind.changePct,
+      relStrength: scored.relStrength,
+      levelsAvailable: false,
+      levelsUnavailableReason:
+        'Not enough price history yet this session to measure volatility (ATR), so no stop or targets can be calculated.',
+      levels: {
+        referenceEntry: entry,
+        stopLoss: null, target: null, target1: null, target2: null,
+        riskPerShare: null, target2Blocked: false,
+        vwap: ind.vwap, pivot: ind.pivot, support1: ind.s1, resistance1: ind.r1,
+      },
+      indicators: { ...ind },
+      fundamentals: ind.fundamentals ?? null,
+      real: ind.real,
+      eventToday: ind.eventToday,
+    };
+  }
+
+  const slDistance = round2(ind.atr * 1.5);
   const stopLoss = isLong ? round2(entry - slDistance) : round2(entry + slDistance);
 
   // Two targets so the plan supports scaling out: T1 at 1R (booking half here
@@ -496,6 +584,7 @@ export function buildPick(stock, ind, scored) {
     ltp: ind.ltp,
     changePct: ind.changePct,
     relStrength: scored.relStrength,
+    levelsAvailable: true,
     levels: {
       referenceEntry: entry,
       stopLoss,

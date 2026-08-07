@@ -65,9 +65,23 @@ async function ensureHub(sessionToken) {
 
   hub.ticker.connect();
 
-  const pairs = await resolveInstrumentTokens(sessionToken, UNIVERSE.map(s => s.symbol));
-  hub.ticker.setUniverse(pairs);
-  broadcast(hub, { type: 'ticker-status', ...hub.status, subscribed: pairs.length });
+  try {
+    // Resolving symbols downloads Kite's full instrument dump on a cold cache,
+    // which is slow and can fail. If it does, the hub must not be left in the
+    // map half-built — every later connection would reuse a ticker that is
+    // connected but subscribed to nothing, and report "live" while silent.
+    const pairs = await resolveInstrumentTokens(sessionToken, UNIVERSE.map(s => s.symbol));
+    if (!pairs.length) throw new Error('no instrument tokens resolved');
+    hub.ticker.setUniverse(pairs);
+    hub.status = { ...hub.status, subscribed: pairs.length };
+    broadcast(hub, { type: 'ticker-status', ...hub.status });
+  } catch (err) {
+    hub.ticker.close();
+    clearTimeout(hub.timer);
+    hubs.delete(sessionToken);
+    broadcast(hub, { type: 'ticker-status', connected: false, error: `subscribe failed: ${err.message}` });
+    throw err;
+  }
 
   return hub;
 }

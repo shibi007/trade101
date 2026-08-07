@@ -163,6 +163,9 @@
     border:1px solid var(--amber); color:var(--amber); }
   .pinned-note { font-size:12px; color:var(--muted); margin:0 0 10px; }
   .pinned-note b { color:var(--amber); }
+  .no-levels { border:1px solid var(--amber); border-radius:8px; padding:12px 14px; margin:10px 0;
+    background:rgba(210,153,34,.07); font-size:12px; color:var(--muted); line-height:1.6; }
+  .no-levels b { display:block; color:var(--amber); font-size:13px; margin-bottom:4px; }
 
   /* ---------- live ticks + alerts ---------- */
   @keyframes flashUp { 0%{background:rgba(63,185,80,.28)} 100%{background:transparent} }
@@ -897,19 +900,68 @@ function togglePin(symbol) {
   loadInsights();
 }
 
+// A failed load used to leave the skeletons up forever: there was no error
+// branch, so a 500 produced `{error}` with no `picks`, renderPicks threw on
+// `d.picks.filter`, and the page sat shimmering with nothing said. Whatever the
+// underlying cause, the failure has to be visible.
+let insightsInFlight = false;
+
+function showPicksError(message, detail) {
+  $('#picks-list').innerHTML = `<div class="card">
+    <div style="color:var(--red);font-weight:600;margin-bottom:6px">Could not load picks</div>
+    <div class="muted" style="font-size:13px;line-height:1.6">${message}</div>
+    ${detail ? `<div class="muted" style="font-size:12px;margin-top:8px"><code>${detail}</code></div>` : ''}
+    <button class="btn secondary" style="margin-top:12px" onclick="loadInsights()">Retry now</button>
+  </div>`;
+  $('#breadth-cards').innerHTML = '';
+}
+
 async function loadInsights() {
+  // Generating insights can take tens of seconds when Kite historical data is
+  // being fetched for the whole universe. The 60s refresh would then stack
+  // requests on top of a server already struggling, making it worse.
+  if (insightsInFlight) return;
+  insightsInFlight = true;
+
   if (!insightsLoadedOnce) {
     $('#picks-list').innerHTML = skeletonPicks();
     $('#breadth-cards').innerHTML = skeletonBreadth();
   }
-  const q = pinnedSymbols.length ? `?pinned=${encodeURIComponent(pinnedSymbols.join(','))}` : '';
-  const r = await api('/api/insights' + q);
-  if (r.status === 401) { location.href = '/login.html'; return; }
-  const data = await r.json();
-  latest = data;
-  renderPicks(data);
-  renderInsights(data);
-  insightsLoadedOnce = true;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90_000);
+
+  try {
+    const q = pinnedSymbols.length ? `?pinned=${encodeURIComponent(pinnedSymbols.join(','))}` : '';
+    const r = await api('/api/insights' + q, { signal: controller.signal });
+    if (r.status === 401) { location.href = '/login.html'; return; }
+
+    const data = await r.json().catch(() => null);
+
+    if (!r.ok) {
+      return showPicksError(
+        'The server returned an error while building the picks. The Kite connection and market data are the usual causes.',
+        `HTTP ${r.status}: ${data?.error || 'no detail'}`);
+    }
+    if (!data || !Array.isArray(data.picks)) {
+      return showPicksError('The server responded, but without a picks list.',
+        data?.error || 'malformed response');
+    }
+
+    latest = data;
+    renderPicks(data);
+    renderInsights(data);
+    insightsLoadedOnce = true;
+  } catch (err) {
+    showPicksError(
+      err.name === 'AbortError'
+        ? 'The request took longer than 90 seconds and was cancelled. Fetching Kite historical data for the whole universe can be slow on a small instance.'
+        : 'Could not reach the server.',
+      err.message);
+  } finally {
+    clearTimeout(timeout);
+    insightsInFlight = false;
+  }
 }
 
 // Count a <b> element up from its current number to a target over `dur` ms.
@@ -991,6 +1043,12 @@ function renderPicks(d) {
       </div>
       <div style="margin-top:6px"><span data-tip="ltp" tabindex="0" data-price="${p.ltp}">₹${fmt(p.ltp)}</span> <span class="${cls(p.changePct)}">${pct(p.changePct)}</span>${p.relStrength != null ? ` <span class="muted" style="font-size:12px" data-tip="relstrength" tabindex="0">(${pct(p.relStrength)} vs market)</span>` : ''}</div>
       <ul class="reasons">${p.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
+      ${p.levelsAvailable === false ? `
+      <div class="no-levels">
+        <b>No trade plan yet</b>
+        <div>${p.levelsUnavailableReason || 'Volatility could not be measured, so no stop or targets can be calculated.'}</div>
+        <div style="margin-top:6px">The signals above still stand — but without a stop distance there is no way to size a position, so none is suggested.</div>
+      </div>` : `
       <div class="plan">
         <div>${tip('entry', 'Entry')}<b>₹${fmt(p.levels.referenceEntry)}</b></div>
         <div class="sl">${tip('stoploss', 'Stop loss')}<b>₹${fmt(p.levels.stopLoss)}</b></div>
@@ -998,7 +1056,7 @@ function renderPicks(d) {
         <div class="t2">${tip('target2', 'Target 2')}<b>₹${fmt(p.levels.target2)}</b><span class="rr" style="display:inline" data-tip="risk" tabindex="0">2R</span>
           ${p.levels.target2Blocked ? `<span class="blocked" data-tip="${p.direction === 'LONG' ? 'resistance1' : 'support1'}" tabindex="0">⚠ ${p.direction === 'LONG' ? 'Resistance 1' : 'Support 1'} sits before this level</span>` : ''}</div>
       </div>
-      <p class="plan-note">Risk ₹${fmt(p.levels.riskPerShare)}/share · qty risking 2% of ${capitalLabel} ≈ ${Math.floor((capital * 0.02) / Math.max(0.01, p.levels.riskPerShare))} shares · levels are 1.5×${tip('atr', 'Average True Range')} calculations, not advice</p>
+      <p class="plan-note">Risk ₹${fmt(p.levels.riskPerShare)}/share · qty risking 2% of ${capitalLabel} ≈ ${Math.floor((capital * 0.02) / p.levels.riskPerShare)} shares · levels are 1.5×${tip('atr', 'Average True Range')} calculations, not advice</p>`}
       <div class="levels">
         <div>${tip('vwap', 'Volume Weighted Average Price')}₹${fmt(p.levels.vwap)}</div>
         <div>${tip('pivot', 'Pivot point')}₹${fmt(p.levels.pivot)}</div>

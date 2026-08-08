@@ -212,6 +212,7 @@
   .study-toggle.on[data-study="cog"] { color:#f778ba; }
   #price-chart { height:380px; width:100%; }
   #cog-chart { height:130px; width:100%; margin-top:2px; }
+  #rsi-chart { height:130px; width:100%; margin-top:2px; }
   .cog-label { font-size:11px; color:var(--muted); margin:6px 0 0; }
   .chart-foot { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:var(--muted); margin-top:8px; }
   .chart-loading { height:510px; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:13px; }
@@ -383,6 +384,7 @@
     <div class="study-bar" id="study-bar">
       <span class="study-toggle on" data-study="volume" data-tip="volume" tabindex="0">Volume</span>
       <span class="study-toggle on" data-study="cog" data-tip="cog" tabindex="0">Center of Gravity</span>
+      <span class="study-toggle on" data-study="rsi" data-tip="rsi" tabindex="0">RSI(14)</span>
       <span class="study-toggle on" data-study="regression" data-tip="regression" tabindex="0">Regression channel</span>
       <span class="study-toggle on" data-study="volumeCog" data-tip="volumecog" tabindex="0">Volume Center of Gravity</span>
       <span class="study-toggle on" data-study="poc" data-tip="poc" tabindex="0">Point of Control</span>
@@ -392,6 +394,8 @@
       <div id="price-chart"></div>
       <p class="cog-label" id="cog-label">Ehlers Center of Gravity</p>
       <div id="cog-chart"></div>
+      <p class="cog-label" id="rsi-label">RSI(14)</p>
+      <div id="rsi-chart"></div>
     </div>
     <div class="chart-foot" id="chart-foot"></div>
   </div>
@@ -470,12 +474,14 @@ const GLOSSARY = {
     'One R is the distance from entry to stop — what you lose if wrong. Target 1 at 1R returns that amount; Target 2 at 2R returns twice it. Thinking in R keeps position sizes comparable across stocks.'],
   score: ['Setup score', null,
     'The sum of the technical signals that fired, out of 100. Only setups scoring 40 or more are shown. Hover the number itself for the exact breakdown.'],
-  relstrength: ['Relative strength', null,
-    'This stock\'s change minus the market\'s average change. It separates a strong stock from a strong market: up 0.5% on a day the market is up 2% is actually lagging badly.'],
+  relstrength: ['Relative strength', 'Outperformance vs the market — NOT RSI',
+    'This stock\'s change minus the market\'s average change. It separates a strong stock from a strong market: up 0.5% on a day the market is up 2% is actually lagging badly. Confusingly named: this is a cross-sectional comparison against other stocks, whereas the Relative Strength Index (RSI) compares a stock only to its own past. They share two words and measure unrelated things.'],
   sentiment: ['Sentiment', 'Market Breadth Sentiment',
     'Derived from how many stocks are advancing versus declining, not from any single index. Broad participation is a more honest read on the day than a handful of heavyweights.'],
   advances: ['Advances', null, 'How many stocks in the tracked universe are up on the day.'],
   declines: ['Declines', null, 'How many stocks in the tracked universe are down on the day.'],
+  rsi: ['RSI(14)', 'Relative Strength Index (Wilder)',
+    'A 0-100 oscillator built from a stock\'s own average gains against its own average losses over 14 periods. Above 70 the move is stretched, below 30 it is washed out. Despite the name it has nothing to do with the "relative strength" used in scoring — RSI compares a stock only to its own past, never to other stocks.'],
   cog: ['COG', 'Center of Gravity (Ehlers)',
     'The balance point of recent prices, weighted by how far back each sits. It turns almost without lag, which makes it early but twitchy — the signal line crossover is the usual read.'],
   regression: ['Regression channel', 'Linear Regression Channel',
@@ -635,6 +641,7 @@ const GUIDE = [
       <tr><td><strong>VWAP with relative strength</strong><br><span class="muted">Above VWAP <em>and</em> outperforming the market, or below and underperforming. The heaviest signal: two independent things must agree, and it has to keep being true to keep scoring.</span></td><td class="w plus">+25</td></tr>
       <tr><td><strong>Opening range breakout</strong><br><span class="muted">Price breaks the first 15 minutes' high or low. Weighted below VWAP because a breakout is a single moment and fails often.</span></td><td class="w plus">+20</td></tr>
       <tr><td><strong>30-minute momentum</strong><br><span class="muted">The move is still going, not already finished.</span></td><td class="w plus">+15</td></tr>
+      <tr><td><strong>RSI(14) exhaustion, turning</strong><br><span class="muted">Below 30 and turning up, or above 70 and turning down. The turn is required — an oscillator below 30 that is still falling is a stock going down, not a bounce. The only mean-reverting signal here; it can disagree with the trend signals, and a conflicted chart correctly scores lower on both sides.</span></td><td class="w plus">+15</td></tr>
       <tr><td><strong>Volume surge</strong><br><span class="muted">Above 1.3&times; the session average, credited to whichever side the stock is moving relative to its peers.</span></td><td class="w plus">+15</td></tr>
       <tr><td><strong>Gap holding and extending</strong><br><span class="muted">An opening gap that kept going rather than filling.</span></td><td class="w plus">+15</td></tr>
       <tr><td><strong>Position in the day's range</strong><br><span class="muted">Near the high for longs, near the low for shorts.</span></td><td class="w plus">+10</td></tr>
@@ -790,7 +797,7 @@ $('#theme-btn').onclick = () => {
 function rethemeCharts() {
   if (!charts) return;
   const t = chartTheme();
-  for (const c of [charts.price, charts.cog]) {
+  for (const c of [charts.price, charts.cog, charts.rsiChart]) {
     c.applyOptions({
       layout: { background: { color: t.bg }, textColor: t.text },
       grid: { vertLines: { color: t.grid }, horzLines: { color: t.grid } },
@@ -1340,6 +1347,7 @@ $('#refresh').onclick = async () => {
 const CHART_COLORS = {
   up: '#3fb950', down: '#f85149', cog: '#f778ba', signal: '#8b949e',
   regression: '#a371f7', volumeCog: '#58a6ff', poc: '#d29922',
+  rsi: '#e3b341', rsiBand: '#6e7681',
   entry: '#58a6ff', stop: '#f85149', t1: '#3fb950', t2: '#3fb950',
 };
 
@@ -1347,7 +1355,7 @@ let charts = null;          // { price, cog, series… } once built
 let chartSymbol = null;
 let chartTimer = null;
 let priceLines = [];
-const studyState = { volume: true, cog: true, regression: true, volumeCog: true, poc: true, levels: true };
+const studyState = { volume: true, cog: true, rsi: true, regression: true, volumeCog: true, poc: true, levels: true };
 
 function chartTheme() {
   const light = document.documentElement.getAttribute('data-theme') === 'light';
@@ -1372,6 +1380,10 @@ function buildCharts() {
 
   const price = LightweightCharts.createChart($('#price-chart'), base());
   const cog = LightweightCharts.createChart($('#cog-chart'), {
+    ...base(),
+    timeScale: { ...base().timeScale, visible: false },
+  });
+  const rsi = LightweightCharts.createChart($('#rsi-chart'), {
     ...base(),
     timeScale: { ...base().timeScale, visible: false },
   });
@@ -1402,21 +1414,35 @@ function buildCharts() {
     volumeCog: line(price, CHART_COLORS.volumeCog, 2),
     cog: line(cog, CHART_COLORS.cog, 2),
     cogSignal: line(cog, CHART_COLORS.signal, 1, 2),
+    rsi: line(rsi, CHART_COLORS.rsi, 2),
   };
 
-  // Keep the two time scales locked together, guarding the echo — setting one
-  // fires the other's handler, which would set the first back.
-  let syncing = false;
-  const sync = (from, to) => from.timeScale().subscribeVisibleLogicalRangeChange(range => {
-    if (syncing || !range) return;
-    syncing = true;
-    to.timeScale().setVisibleLogicalRange(range);
-    syncing = false;
-  });
-  sync(price, cog);
-  sync(cog, price);
+  // 70 and 30 are where the RSI signals fire, so they are drawn rather than
+  // left to be eyeballed off the axis.
+  for (const level of [70, 30]) {
+    series.rsi.createPriceLine({
+      price: level, color: CHART_COLORS.rsiBand, lineWidth: 1, lineStyle: 2,
+      axisLabelVisible: true, title: String(level),
+    });
+  }
+  // Fixed 0-100 scale: RSI is bounded, and letting it autoscale would stretch a
+  // quiet 45-55 range across the whole pane and make it look decisive.
+  series.rsi.priceScale().applyOptions({ autoScale: false, scaleMargins: { top: 0.05, bottom: 0.05 } });
 
-  charts = { price, cog, ...series };
+  // Keep every time scale locked together, guarding the echo — setting one
+  // fires the others' handlers, which would set the first back.
+  let syncing = false;
+  const panes = [price, cog, rsi];
+  for (const from of panes) {
+    from.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if (syncing || !range) return;
+      syncing = true;
+      for (const to of panes) if (to !== from) to.timeScale().setVisibleLogicalRange(range);
+      syncing = false;
+    });
+  }
+
+  charts = { price, cog, rsiChart: rsi, ...series };
   return charts;
 }
 
@@ -1427,6 +1453,8 @@ function applyStudyVisibility() {
   charts.cogSignal.applyOptions({ visible: studyState.cog });
   $('#cog-chart').style.display = studyState.cog ? '' : 'none';
   $('#cog-label').style.display = studyState.cog ? '' : 'none';
+  $('#rsi-chart').style.display = studyState.rsi ? '' : 'none';
+  $('#rsi-label').style.display = studyState.rsi ? '' : 'none';
   for (const k of ['regMid', 'regUpper', 'regLower']) charts[k].applyOptions({ visible: studyState.regression });
   charts.volumeCog.applyOptions({ visible: studyState.volumeCog });
   drawPriceLines();
@@ -1477,9 +1505,15 @@ function renderChart(payload, { keepView }) {
   charts.volumeCog.setData(pick(s.volumeCog, 'value'));
   charts.cog.setData(pick(s.cog, 'cog'));
   charts.cogSignal.setData(pick(s.cog, 'signal'));
+  charts.rsi.setData(pick(s.rsi, 'rsi'));
 
   $('#cog-label').textContent =
     `Ehlers Center of Gravity (${s.cogPeriod ?? 10}) · pink = COG, grey dashed = signal · crossovers mark turns`;
+
+  const lastRsi = [...(s.rsi || [])].reverse().find(p => p.rsi != null)?.rsi;
+  $('#rsi-label').textContent = lastRsi != null
+    ? `RSI(${s.rsiPeriod ?? 14}) — now ${lastRsi}${lastRsi > 70 ? ' (overbought)' : lastRsi < 30 ? ' (oversold)' : ''} · above 70 stretched, below 30 washed out`
+    : `RSI(${s.rsiPeriod ?? 14}) — not enough candles yet this session`;
 
   const last = c[c.length - 1];
   $('#chart-foot').innerHTML = [

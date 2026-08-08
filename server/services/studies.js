@@ -24,6 +24,64 @@ function round6(n) { return Math.round(n * 1e6) / 1e6; }
 function medianPrice(c) { return (c.high + c.low) / 2; }
 
 /**
+ * Wilder's Relative Strength Index, as values aligned to the input closes.
+ *
+ * Not to be confused with the "relative strength" the scoring engine uses,
+ * which is this stock's day change minus the market's. They share a name and
+ * measure unrelated things: RSI is a bounded 0-100 oscillator built from a
+ * stock's own average gains against its own average losses, and knows nothing
+ * about any other stock.
+ *
+ * Wilder's smoothing, not a simple moving average: the first value seeds from a
+ * plain mean of `period` changes, then each subsequent average carries the
+ * previous one forward with weight (period-1)/period. Using an SMA instead is a
+ * common and silent error — it produces a similar-looking line with different
+ * turning points, so signals fire on different bars.
+ *
+ * Returns null for every bar before the oscillator has warmed up, rather than a
+ * partial figure that looks authoritative.
+ */
+export function rsiValues(closes, period = 14) {
+  const out = new Array(closes.length).fill(null);
+  if (!Array.isArray(closes) || closes.length < period + 1) return out;
+
+  let gainSum = 0, lossSum = 0;
+  for (let i = 1; i <= period; i++) {
+    const change = closes[i] - closes[i - 1];
+    if (change >= 0) gainSum += change; else lossSum -= change;
+  }
+  let avgGain = gainSum / period;
+  let avgLoss = lossSum / period;
+
+  const toRsi = (g, l) => {
+    // No losses at all means no ratio to take. RSI is defined as 100 there —
+    // dividing by zero would give Infinity and then NaN through the formula.
+    if (l === 0) return g === 0 ? 50 : 100;
+    const rs = g / l;
+    return round2(100 - 100 / (1 + rs));
+  };
+
+  out[period] = toRsi(avgGain, avgLoss);
+
+  for (let i = period + 1; i < closes.length; i++) {
+    const change = closes[i] - closes[i - 1];
+    const gain = change > 0 ? change : 0;
+    const loss = change < 0 ? -change : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+    out[i] = toRsi(avgGain, avgLoss);
+  }
+
+  return out;
+}
+
+/** RSI as chart points, with the input candles' timestamps attached. */
+export function rsiSeries(candles, period = 14) {
+  const values = rsiValues(candles.map(c => c.close), period);
+  return candles.map((c, i) => ({ time: c.time, rsi: values[i] }));
+}
+
+/**
  * Ehlers' Center of Gravity oscillator.
  *
  * The centre of gravity of the last `period` prices, in the mechanical sense:
@@ -193,6 +251,8 @@ export function computeStudies(candles, opts = {}) {
   // back to a third of the series so an early-session chart still draws.
   const regPeriod = Math.min(opts.regressionPeriod ?? 60, Math.max(5, Math.floor(candles.length / 3)));
 
+  const rsiPeriod = opts.rsiPeriod ?? 14;
+
   return {
     cog: ehlersCOG(candles, cogPeriod),
     cogPeriod,
@@ -200,5 +260,7 @@ export function computeStudies(candles, opts = {}) {
     regressionPeriod: regPeriod,
     volumeCog: volumeCOG(candles),
     volumeProfile: volumeProfile(candles),
+    rsi: rsiSeries(candles, rsiPeriod),
+    rsiPeriod,
   };
 }

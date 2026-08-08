@@ -174,6 +174,51 @@ test('every signal weight stays a multiple of 5', () => {
   }
 });
 
+// ---------- RSI signal ----------
+
+test('oversold and turning up scores long', () => {
+  const s = scoreStock(ind({ rsi: 25, rsiRising: true, aboveVwap: true, changePct: 0 }), context());
+  assert.ok(s.reasons.some(r => r.includes('Oversold and turning up')));
+  assert.ok(s.breakdown.some(b => b.side === 'LONG' && b.points === 15 && b.label.includes('RSI')));
+});
+
+test('overbought and turning down scores short', () => {
+  const s = scoreStock(ind({ rsi: 78, rsiRising: false, aboveVwap: false, changePct: 0 }), context());
+  assert.ok(s.reasons.some(r => r.includes('Overbought and turning down')));
+});
+
+test('the turn is required, not just the level', () => {
+  // Below 30 and still falling is a stock going down, not a bounce.
+  const falling = scoreStock(ind({ rsi: 25, rsiRising: false }), context());
+  assert.ok(!falling.reasons.some(r => r.includes('Oversold')), 'must not fire while still falling');
+
+  const rising = scoreStock(ind({ rsi: 78, rsiRising: true }), context());
+  assert.ok(!rising.reasons.some(r => r.includes('Overbought')), 'must not fire while still rising');
+});
+
+test('a neutral RSI contributes nothing either way', () => {
+  const s = scoreStock(ind({ rsi: 50, rsiRising: true }), context());
+  assert.ok(!s.reasons.some(r => r.includes('RSI')));
+});
+
+test('a missing RSI is silently skipped rather than scored', () => {
+  // Null through the first hour of a session is the normal case.
+  const s = scoreStock(ind({ rsi: null, rsiRising: null }), context());
+  assert.ok(Number.isFinite(s.score));
+  assert.ok(!s.reasons.some(r => r.includes('RSI')));
+});
+
+test('RSI is computed from real candles and lands in the indicators', () => {
+  const series = generateIntradaySeries('RELIANCE', 2850);
+  const i = computeIndicators(series);
+  if (series.candles.length > 15) {
+    assert.ok(i.rsi >= 0 && i.rsi <= 100, `RSI was ${i.rsi}`);
+    assert.equal(typeof i.rsiRising, 'boolean');
+  } else {
+    assert.equal(i.rsi, null, 'too few candles to warm up');
+  }
+});
+
 // ---------- rank score and tie-breaking ----------
 
 test('rankScore breaks ties that score alone cannot', () => {

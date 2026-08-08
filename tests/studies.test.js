@@ -10,6 +10,8 @@ import {
   computeStudies,
   ehlersCOG,
   regressionChannel,
+  rsiSeries,
+  rsiValues,
   volumeCOG,
   volumeProfile,
 } from '../server/services/studies.js';
@@ -73,6 +75,75 @@ test('COG signal line lags the oscillator and warms up later', () => {
   assert.equal(out[9].signal, null, 'signal needs 3 COG values before it can average');
   assert.ok(out[11].signal != null);
   assert.ok(out[19].signal != null);
+});
+
+// ---------- rsiValues ----------
+
+test('RSI is null until it has warmed up', () => {
+  // 14 periods needs 15 closes; anything earlier is a partial figure that would
+  // look authoritative without being one.
+  const out = rsiValues(ramp(20), 14);
+  for (let i = 0; i < 14; i++) assert.equal(out[i], null, `bar ${i}`);
+  assert.ok(out[14] != null);
+});
+
+test('RSI is 100 when every move is up', () => {
+  // No losses at all: the gain/loss ratio is undefined and RSI is defined as
+  // 100 there. Dividing by zero would give Infinity and then NaN.
+  const out = rsiValues(ramp(30), 14);
+  assert.equal(out[29], 100);
+});
+
+test('RSI is 0 when every move is down', () => {
+  const out = rsiValues([...ramp(30)].reverse(), 14);
+  assert.equal(out[29], 0);
+});
+
+test('RSI is 50 on a perfectly flat series', () => {
+  const out = rsiValues(new Array(30).fill(100), 14);
+  assert.equal(out[29], 50, 'no gains and no losses is neutral, not 100');
+});
+
+test('RSI stays within 0-100 on noisy data', () => {
+  const closes = [];
+  let p = 100;
+  for (let i = 0; i < 200; i++) { p += Math.sin(i * 1.7) * 3 + (i % 7 === 0 ? -6 : 1); closes.push(p); }
+  for (const v of rsiValues(closes, 14)) {
+    if (v != null) assert.ok(v >= 0 && v <= 100, `got ${v}`);
+  }
+});
+
+test('RSI uses Wilder smoothing, not a simple average', () => {
+  // Known series from Wilder's own worked example. A simple moving average
+  // produces a similar-looking line with different turning points, so signals
+  // would fire on different bars — a silent and common error.
+  const closes = [
+    44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.10, 45.42,
+    45.84, 46.08, 45.89, 46.03, 45.61, 46.28, 46.28, 46.00,
+  ];
+  const out = rsiValues(closes, 14);
+  assert.ok(Math.abs(out[14] - 70.53) < 0.5, `first RSI was ${out[14]}, expected ~70.5`);
+  assert.ok(Math.abs(out[15] - 66.32) < 0.5, `second RSI was ${out[15]}, expected ~66.3`);
+});
+
+test('RSI rises as gains accumulate and falls as losses do', () => {
+  const up = rsiValues([...new Array(15).fill(100), 101, 102, 103, 104], 14);
+  const down = rsiValues([...new Array(15).fill(100), 99, 98, 97, 96], 14);
+  assert.ok(up[18] > up[14], 'gains should raise RSI');
+  assert.ok(down[18] < down[14], 'losses should lower it');
+});
+
+test('rsiValues handles series shorter than the period', () => {
+  assert.deepEqual(rsiValues([1, 2, 3], 14), [null, null, null]);
+  assert.deepEqual(rsiValues([], 14), []);
+});
+
+test('rsiSeries attaches candle timestamps', () => {
+  const c = candles(ramp(20));
+  const s = rsiSeries(c, 14);
+  assert.equal(s.length, 20);
+  assert.equal(s[14].time, c[14].time);
+  assert.ok(s[14].rsi != null);
 });
 
 // ---------- regressionChannel ----------

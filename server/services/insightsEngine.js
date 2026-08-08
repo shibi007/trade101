@@ -19,6 +19,7 @@
  */
 import { getHistoricalCandles, getMargins } from './kiteService.js';
 import { getTodaysEvents, getFundamentals } from './nseService.js';
+import { rsiValues } from './studies.js';
 
 // NIFTY-50 style universe.
 //
@@ -224,7 +225,7 @@ export function computeIndicators(series) {
       dayHigh: null, dayLow: null,
       vwap: ref, aboveVwap: false,
       orHigh: null, orLow: null, orbStatus: 'INSIDE',
-      momentum30m: 0, relVolume: 0, atr: null, atrPct: null,
+      momentum30m: 0, relVolume: 0, atr: null, atrPct: null, rsi: null, rsiRising: null,
       pivot: null, r1: null, s1: null,
       gapPct: 0, changePct: 0, rangePosition: 50,
       volume: 0,
@@ -294,6 +295,16 @@ export function computeIndicators(series) {
   // all — it would put the stop exactly at entry.
   if (!(atr > 0)) atr = null;
 
+  // RSI(14) on the same 5-min candles. Null until it has warmed up, which in
+  // the first hour of a session is the normal case — the previous close is not
+  // a substitute, so there is nothing to fall back to.
+  const rsiAll = rsiValues(candles.map(c => c.close), 14);
+  const rsi = rsiAll[rsiAll.length - 1] ?? null;
+  // The direction of travel matters as much as the level: an oscillator deep in
+  // oversold that is still falling is not a signal, it is a falling stock.
+  const rsiPrev = rsiAll.length > 1 ? rsiAll[rsiAll.length - 2] : null;
+  const rsiRising = (rsi != null && rsiPrev != null) ? rsi > rsiPrev : null;
+
   // Classic pivots from prior day (approximated)
   const pivot = round2((prevClose * 1.005 + prevClose * 0.995 + prevClose) / 3);
   const r1 = round2(2 * pivot - prevClose * 0.995);
@@ -307,7 +318,7 @@ export function computeIndicators(series) {
     ltp, prevClose, open, dayHigh: round2(dayHigh), dayLow: round2(dayLow),
     vwap, aboveVwap: ltp > vwap,
     orHigh: round2(orHigh), orLow: round2(orLow), orbStatus,
-    momentum30m, relVolume, atr,
+    momentum30m, relVolume, atr, rsi, rsiRising,
     // ATR as a share of price, so volatility is comparable across a ₹160 and a
     // ₹12,000 stock. Raw ATR is not: it scales with price, not with tradeability.
     // Null propagates rather than becoming NaN — a NaN here poisons the universe
@@ -413,6 +424,23 @@ export function scoreStock(ind, context = null) {
 
   if (ind.momentum30m > 0.3) { long += 15; note(`Strong 30-min momentum (+${ind.momentum30m}%)`, 15, 'LONG'); }
   if (ind.momentum30m < -0.3) { short += 15; note(`Weak 30-min momentum (${ind.momentum30m}%)`, 15, 'SHORT'); }
+
+  // RSI(14) exhaustion, and the only mean-reverting signal in the set — every
+  // other one is continuation. The turn is required, not just the level: an
+  // oscillator below 30 and still falling is a stock going down, not a bounce.
+  //
+  // It can therefore disagree with the trend signals, and that is deliberate.
+  // A stock below VWAP and underperforming (+25 short) that is also oversold
+  // and turning up (+15 long) ends up scoring lower on both sides than a clean
+  // setup would — which is the right answer for a conflicted chart.
+  if (ind.rsi != null && ind.rsiRising != null) {
+    if (ind.rsi < 30 && ind.rsiRising) {
+      long += 15; note(`Oversold and turning up (RSI ${ind.rsi})`, 15, 'LONG');
+    }
+    if (ind.rsi > 70 && !ind.rsiRising) {
+      short += 15; note(`Overbought and turning down (RSI ${ind.rsi})`, 15, 'SHORT');
+    }
+  }
 
   // Volume confirms whichever way the stock is moving relative to its peers —
   // a surge on a stock lagging the market is distribution, not accumulation.
@@ -616,6 +644,8 @@ export function buildPick(stock, ind, scored) {
       aboveVwap: ind.aboveVwap,
       rangePosition: ind.rangePosition,
       atr: ind.atr,
+      rsi: ind.rsi,
+      rsiRising: ind.rsiRising,
       sma20: ind.sma20,
       sma50: ind.sma50,
       sma200: ind.sma200,

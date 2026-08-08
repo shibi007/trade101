@@ -146,6 +146,34 @@ test('volume surge confirms the relative move, not the absolute one', () => {
   assert.equal(scored.direction, 'SHORT');
 });
 
+// ---------- signal weighting ----------
+
+test('VWAP with relative strength outweighs the opening range breakout', () => {
+  const ctx = context();
+  // VWAP + outperforming, no breakout.
+  const vwapOnly = scoreStock(ind({ changePct: 1.0, aboveVwap: true, orbStatus: 'INSIDE' }), ctx);
+  // Breakout, but flat against the market so the VWAP signal cannot fire.
+  const orbOnly = scoreStock(ind({ changePct: 0, aboveVwap: true, orbStatus: 'BREAKOUT_UP' }), ctx);
+
+  assert.equal(vwapOnly.score, 25, 'VWAP with relative strength should be the heaviest signal');
+  assert.equal(orbOnly.score, 20, 'the opening range breakout sits below it');
+  assert.ok(vwapOnly.score > orbOnly.score);
+});
+
+test('every signal weight stays a multiple of 5', () => {
+  // The rankScore edge term is capped at ±7 so it can never bridge the smallest
+  // signal gap of 10. A weight that is not a multiple of 5 would shrink that
+  // gap and let the tie-breaker silently override a real signal.
+  const everything = scoreStock(ind({
+    changePct: 5, aboveVwap: true, orbStatus: 'BREAKOUT_UP', momentum30m: 2,
+    relVolume: 2, gapPct: 1.5, rangePosition: 95, ltp: 1000, sma20: 900, sma50: 800,
+    orderImbalance: 0.5,
+  }), context());
+  for (const b of everything.breakdown) {
+    assert.equal(Math.abs(b.points) % 5, 0, `${b.label} is worth ${b.points}`);
+  }
+});
+
 // ---------- rank score and tie-breaking ----------
 
 test('rankScore breaks ties that score alone cannot', () => {

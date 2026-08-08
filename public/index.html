@@ -431,7 +431,7 @@ const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'neu';
 // help anyone decide whether to act on the number next to it.
 const GLOSSARY = {
   vwap: ['VWAP', 'Volume Weighted Average Price',
-    'The average price weighted by how much traded at each level, reset each session. It is where the average participant is filled, so institutions use it as a benchmark. Price above VWAP means buyers are in control on the day; below means sellers are.'],
+    'The average price weighted by how much traded at each level, reset each session. It is where the average participant is filled, so institutions use it as a benchmark. Price above VWAP means buyers are in control on the day; below means sellers are. Combined with relative strength this is the screener\'s heaviest signal (25 points).'],
   pivot: ['Pivot', 'Pivot Point',
     'Yesterday\'s high, low and close averaged into one level. Widely watched, so it often acts as the day\'s dividing line between bullish and bearish.'],
   support1: ['Support 1', 'First Support Level (S1)',
@@ -441,7 +441,7 @@ const GLOSSARY = {
   atr: ['ATR', 'Average True Range',
     'The average distance price travels in one candle, including gaps. It sizes the stop: a stop closer than ATR sits inside normal noise and gets hit by randomness rather than by being wrong.'],
   orb: ['Opening range', 'Opening Range Breakout (ORB)',
-    'The high and low of the first 15 minutes. Breaking out of that range on volume is one of the more reliable intraday continuation signals, which is why it is the highest-weighted signal here (25 points).'],
+    'The high and low of the first 15 minutes. Breaking out of that range on volume is a well-known intraday continuation signal, worth 20 points here. It is weighted below VWAP-with-relative-strength because a breakout is a single moment that fails often, where holding the right side of VWAP while outperforming has to persist to keep scoring.'],
   sma: ['SMA', 'Simple Moving Average',
     'The average closing price over the last N days. Price above a rising 20-day and 50-day average is the textbook definition of an uptrend; the 200-day is the long-term trend line.'],
   ltp: ['LTP', 'Last Traded Price',
@@ -632,8 +632,8 @@ const GUIDE = [
     <p>Nine signals, each worth a fixed number of points. They were chosen to be reasonably independent — a
     setup scoring well on several is stronger than one that trips the same idea repeatedly.</p>
     <table class="signal-table">
-      <tr><td><strong>Opening range breakout</strong><br><span class="muted">Price breaks the first 15 minutes' high or low.</span></td><td class="w plus">+25</td></tr>
-      <tr><td><strong>VWAP with relative strength</strong><br><span class="muted">Above VWAP <em>and</em> outperforming the market, or below and underperforming.</span></td><td class="w plus">+20</td></tr>
+      <tr><td><strong>VWAP with relative strength</strong><br><span class="muted">Above VWAP <em>and</em> outperforming the market, or below and underperforming. The heaviest signal: two independent things must agree, and it has to keep being true to keep scoring.</span></td><td class="w plus">+25</td></tr>
+      <tr><td><strong>Opening range breakout</strong><br><span class="muted">Price breaks the first 15 minutes' high or low. Weighted below VWAP because a breakout is a single moment and fails often.</span></td><td class="w plus">+20</td></tr>
       <tr><td><strong>30-minute momentum</strong><br><span class="muted">The move is still going, not already finished.</span></td><td class="w plus">+15</td></tr>
       <tr><td><strong>Volume surge</strong><br><span class="muted">Above 1.3&times; the session average, credited to whichever side the stock is moving relative to its peers.</span></td><td class="w plus">+15</td></tr>
       <tr><td><strong>Gap holding and extending</strong><br><span class="muted">An opening gap that kept going rather than filling.</span></td><td class="w plus">+15</td></tr>

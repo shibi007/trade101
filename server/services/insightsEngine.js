@@ -396,11 +396,20 @@ export function scoreStock(ind, context = null) {
   // back to the raw day change, which is the same thing when the market is flat.
   const relStrength = context ? round2(ind.changePct - context.marketChangePct) : ind.changePct;
 
-  if (ind.orbStatus === 'BREAKOUT_UP') { long += 25; note('Broke above 15-min opening range', 25, 'LONG'); }
-  if (ind.orbStatus === 'BREAKOUT_DOWN') { short += 25; note('Broke below 15-min opening range', 25, 'SHORT'); }
+  // Weights are multiples of 5 so the smallest single signal stays 10 points —
+  // the rankScore edge term is capped at ±7 precisely so it can never bridge
+  // that gap. Changing these to non-multiples would quietly break that
+  // guarantee and let the tie-breaker override a real signal.
+  //
+  // VWAP-with-relative-strength outranks the opening-range breakout: a breakout
+  // is a single moment and fails often, while holding the right side of VWAP
+  // *while* outperforming the market is a state that has to persist to keep
+  // scoring. Two independent things must agree for it to fire.
+  if (ind.aboveVwap && relStrength > 0) { long += 25; note(`Above VWAP and outperforming the market (+${relStrength}% relative)`, 25, 'LONG'); }
+  if (!ind.aboveVwap && relStrength < 0) { short += 25; note(`Below VWAP and underperforming the market (${relStrength}% relative)`, 25, 'SHORT'); }
 
-  if (ind.aboveVwap && relStrength > 0) { long += 20; note(`Above VWAP and outperforming the market (+${relStrength}% relative)`, 20, 'LONG'); }
-  if (!ind.aboveVwap && relStrength < 0) { short += 20; note(`Below VWAP and underperforming the market (${relStrength}% relative)`, 20, 'SHORT'); }
+  if (ind.orbStatus === 'BREAKOUT_UP') { long += 20; note('Broke above 15-min opening range', 20, 'LONG'); }
+  if (ind.orbStatus === 'BREAKOUT_DOWN') { short += 20; note('Broke below 15-min opening range', 20, 'SHORT'); }
 
   if (ind.momentum30m > 0.3) { long += 15; note(`Strong 30-min momentum (+${ind.momentum30m}%)`, 15, 'LONG'); }
   if (ind.momentum30m < -0.3) { short += 15; note(`Weak 30-min momentum (${ind.momentum30m}%)`, 15, 'SHORT'); }

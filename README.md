@@ -95,6 +95,72 @@ comparable scales.
 Stop = 1.5 × ATR from entry; T1 = 1R, T2 = 2R. T2 is flagged when R1 / S1 sits in the way. No plan is
 produced when ATR is unavailable.
 
+## 📊 Swing Trading
+
+The **Swing Picks** tab (`server/services/swingEngine.js`) finds multi-day setups, held for roughly 3–10
+sessions, in the same F&O universe. It scores **completed daily candles**: today's bar counts only after
+15:45 IST, so a breakout that fades in the afternoon never triggers.
+
+### The formula
+
+It is built from the factors with the strongest published evidence at the swing horizon. Shorts score the
+mirror image of every rule.
+
+| Factor | Condition (long) | Points |
+|---|---|---|
+| Trend template ("Stage 2") | Price > MA50 > MA200, MA200 rising over a month · partial: price and MA50 above MA200 | +25 · +12 |
+| Relative strength rank | 3–12 month return vs the universe, latest quarter weighted 2×: top quarter · upper half | +20 · +10 |
+| Near 52-week high | Within 5% · within 15% | +15 · +8 |
+| **Entry trigger** | Close above the 20-day closing high on ≥1.5× 50-day volume, **or** pullback to within 3% of MA20 in an uptrend with RSI 40–55 | +20 |
+| Daily MACD | Fresh crossover · momentum building | +10 · +5 |
+| Range tightening | 10-day true range < 75% of the 50-day | +10 |
+| Extended | More than 8% above MA20 | −15 |
+| Overbought | RSI above 75 | −10 |
+| Unsuitable daily range | ATR% outside 0.4×–2.2× the universe median | −10 |
+
+A stock is a **pick** only with an entry trigger and a score of 50 or more. Strong stocks without a trigger go
+on the **watchlist**. Ties are broken as on the intraday board, never reordering unequal scores.
+
+Evidence behind the factors: 3–12 month momentum (Jegadeesh & Titman, 1993, replicated across markets
+including India); nearness to the 52-week high (George & Hwang, 2004); the trend template follows Weinstein
+and Minervini. **None of this guarantees returns.** These effects are averages over decades, weaken once widely
+traded, and can fail for years. That is what the backtester is for.
+
+### Trade plan
+
+- **Stop** where the setup is proven wrong: back below the breakout level (minus 0.5 ATR), or below the last
+  10 days' low (minus 0.25 ATR) for a pullback. It is then held between 1 and 3 daily ATRs.
+- **Targets** at 2R and 3R. T2 is flagged when the 52-week high or low sits in the way.
+- **Time stop:** exit after 10 sessions if neither is reached.
+- Levels are fixed at the signal close. During market hours a live price marks a plan **STOPPED** or
+  **MISSED** (past T1) and removes it from the board; otherwise sizing uses the live distance to the stop.
+- **Sizing:** cash at 1×, since intraday MIS leverage does not apply overnight. **Shorts can only be held
+  overnight through futures** (cash-market shorts must be squared off the same day), so SELL cards show what
+  one futures lot risks.
+
+### Backtester
+
+`server/services/swingBacktest.js` replays the shipped formula, calling the same functions, over real Kite daily
+history. Execution is deliberately unflattering:
+
+- Entry at the **next day's open**; trades that gap through the stop are skipped.
+- When one bar touches both the stop and the target, the **stop is assumed first**.
+- A gap through the stop exits at the open. The stop moves to breakeven after T1.
+- **0.3% round-trip cost** per trade (STT, charges and slippage on delivery).
+
+It reports win rate, expectancy (avg R), profit factor, total R, equity multiple at 1% risk per trade, max
+drawdown and holding time. These are shown for five variants (all setups, long only, breakouts only,
+pullbacks only, score ≥ 70) next to equal-weight buy-and-hold, so the best entry style is chosen on
+measured results. A variant needs 30+ trades to be called best.
+
+**It is validated in both directions:** on driftless random walks it finds no edge (expectancy ≈ −costs), and
+on series with real trends it finds one. A separate test checks that adding future candles never changes a
+past signal (no look-ahead).
+
+**It refuses to run without Kite.** Simulated prices are random, so any return measured on them would be
+fiction. The universe is today's F&O list, so stocks that dropped out are missing (survivorship bias, which
+flatters longs).
+
 ## 📁 Project Structure
 
 ```
@@ -186,10 +252,14 @@ npm test
 - `GET /api/market/stock/:symbol` - Get specific stock details
 - `GET /api/market/indices` - Get market indices (NIFTY 50, SENSEX, etc.)
 - `GET /api/market/config` - Get market configuration
+- `GET /api/market/candles/:symbol?interval=5minute` - OHLCV + chart studies. Intervals: `minute`, `3minute`,
+  `5minute`, `10minute`, `15minute`, `30minute`, `60minute` (up to 10 days), `day` (up to 730 days, default 365)
 
 ### Insights (requires login)
 - `GET /api/insights` - Full snapshot: picks, F&O universe, breadth, sectors, scanners
 - `GET /api/insights/picks` - Picks only
+- `GET /api/insights/swing` - Swing picks, watchlist and the full scored universe (daily candles)
+- `GET /api/insights/swing/backtest?days=1095` - Replay the swing formula on Kite history (400–1900 days; requires Kite)
 - `GET /api/insights/source` - Whether data is live from Kite or simulated
 - Query: `limit` (max picks, 1–50), `pinned` (comma-separated symbols kept on the board regardless of score)
 

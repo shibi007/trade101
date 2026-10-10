@@ -161,19 +161,19 @@ export function generateIntradaySeries(symbol, refPrice, date = new Date(), step
   return { symbol, prevClose: round2(prevClose), open: round2(open), candles };
 }
 
-function round2(n) { return Math.round(n * 100) / 100; }
+export function round2(n) { return Math.round(n * 100) / 100; }
 
 // ---------- IST time helpers ----------
-function nowIST() {
+export function nowIST() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
 }
-function istAt(base, hours, minutes) {
+export function istAt(base, hours, minutes) {
   const d = new Date(base);
   d.setHours(hours, minutes, 0, 0);
   return d;
 }
 
-function sma(closes, period) {
+export function sma(closes, period) {
   if (closes.length < period) return null;
   const slice = closes.slice(-period);
   return round2(slice.reduce((a, b) => a + b, 0) / period);
@@ -185,7 +185,7 @@ function sma(closes, period) {
  * packages use, so values here match what a trader sees on TradingView).
  * Positions before the seed are null rather than a half-warmed value.
  */
-function emaSeries(values, period) {
+export function emaSeries(values, period) {
   if (values.length < period) return null;
   const out = new Array(values.length).fill(null);
   const k = 2 / (period + 1);
@@ -251,18 +251,18 @@ export function computeMACD(closes, { fast, slow, signal } = MACD_PERIODS) {
 }
 
 // ---------- cross-sectional statistics ----------
-function mean(xs) {
+export function mean(xs) {
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
 }
 
-function median(xs) {
+export function median(xs) {
   if (!xs.length) return 0;
   const sorted = [...xs].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-function stdev(xs) {
+export function stdev(xs) {
   if (xs.length < 2) return 0;
   const m = mean(xs);
   return Math.sqrt(mean(xs.map(x => (x - m) ** 2)));
@@ -273,12 +273,12 @@ function stdev(xs) {
  * the mean). Returns 0 when the universe carries no cross-sectional
  * information — a factor that cannot discriminate must not move the ranking.
  */
-function zscore(value, m, sd) {
+export function zscore(value, m, sd) {
   if (!Number.isFinite(sd) || sd === 0) return 0;
   return (value - m) / sd;
 }
 
-function clamp(x, lo, hi) {
+export function clamp(x, lo, hi) {
   return Math.max(lo, Math.min(hi, x));
 }
 

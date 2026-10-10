@@ -2,6 +2,7 @@ import express from 'express';
 import { MARKET_CONFIG } from '../../config/marketConfig.js';
 import { getHistoricalCandles } from '../services/kiteService.js';
 import { UNIVERSE, generateIntradaySeries } from '../services/insightsEngine.js';
+import { generateDailySeries } from '../services/swingEngine.js';
 import { computeStudies } from '../services/studies.js';
 import { parseCookies, SESSION_COOKIE } from '../services/authService.js';
 
@@ -65,6 +66,7 @@ router.get('/indices', (req, res) => {
 const INTERVALS = {
   minute: 1, '3minute': 3, '5minute': 5, '10minute': 10,
   '15minute': 15, '30minute': 30, '60minute': 60,
+  day: 1440,
 };
 
 // Lightweight Charts renders a numeric `time` as UTC with no way to set a
@@ -100,7 +102,12 @@ router.get('/candles/:symbol', async (req, res) => {
     const stepMinutes = INTERVALS[interval];
 
     const token = parseCookies(req)[SESSION_COOKIE];
-    const days = Math.max(1, Math.min(10, Number(req.query.days) || 1));
+    // Daily candles serve swing trading, which needs months of context; intraday
+    // intervals stay capped at 10 days, which is all a minute chart can show.
+    const isDaily = interval === 'day';
+    const days = isDaily
+      ? Math.max(30, Math.min(730, Number(req.query.days) || 365))
+      : Math.max(1, Math.min(10, Number(req.query.days) || 1));
     const to = new Date();
     const from = new Date(to.getTime() - days * 24 * 3600 * 1000);
 
@@ -116,7 +123,17 @@ router.get('/candles/:symbol', async (req, res) => {
       real = candles.length > 0;
     }
 
-    if (!real) {
+    if (!real && isDaily) {
+      // Simulated daily history, dated backwards one calendar day per bar from
+      // today. Weekends are not skipped: the bars are fiction either way and are
+      // labelled as such, and calendar-accurate fiction would only look truer.
+      const series = generateDailySeries(symbol, stock.ref, Math.min(days, 320));
+      const todayUtc = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()) / 1000;
+      candles = series.map((c, i) => ({
+        time: todayUtc - (series.length - 1 - i) * 86400,
+        open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume,
+      }));
+    } else if (!real) {
       // Simulated session: synthesise timestamps from the 9:15 IST open, since
       // the simulator indexes candles rather than dating them.
       const series = generateIntradaySeries(symbol, stock.ref, new Date(), stepMinutes);

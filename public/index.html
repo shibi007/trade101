@@ -283,6 +283,7 @@
 
 <nav>
   <button data-tab="picks" class="active">📈 Today's Picks</button>
+  <button data-tab="swing">📊 Swing Picks</button>
   <button data-tab="insights">🔍 Market Insights</button>
   <button data-tab="guide">📚 Guide</button>
   <button data-tab="kite">🔗 Kite Connect</button>
@@ -301,6 +302,35 @@
     <p class="pinned-note" id="pinned-note"></p>
     <div class="grid" id="picks-list"></div>
     <div class="disclaimer">⚠️ Algorithmic screening for educational purposes only — not investment advice. Levels are indicator-derived references, not recommendations. Consult a SEBI-registered advisor before trading.</div>
+  </section>
+
+  <!-- ============ SWING TAB ============ -->
+  <section id="tab-swing" class="hidden">
+    <p class="src-note" id="swing-source"></p>
+    <p class="muted" style="margin:0 0 12px;font-size:13px">
+      Multi-day setups held for roughly 3–10 sessions, scored on completed daily candles. A stock needs an
+      <b>entry trigger</b> — a breakout on volume or a pullback in trend — to appear here; strong trends still
+      waiting for one are on the watchlist below. <a href="#" id="swing-guide-link" style="color:var(--blue)">How the formula works</a>
+    </p>
+    <div class="grid" id="swing-list"></div>
+    <div class="card" style="margin-top:14px">
+      <h3>Watchlist <span class="muted" style="font-size:11px;font-weight:normal">· in trend, waiting for an entry trigger</span></h3>
+      <div style="overflow:auto"><table id="swing-watch"></table></div>
+    </div>
+    <div class="card" style="margin-top:14px" id="swing-backtest-card">
+      <h3><span data-tip="backtest" tabindex="0">Backtest the formula</span> <span class="muted" style="font-size:11px;font-weight:normal">· replays this exact formula on real NSE history</span></h3>
+      <p class="alert-bar" style="margin:6px 0 10px">
+        <select id="bt-days" style="width:auto;margin:0;padding:5px 8px;font-size:12px">
+          <option value="730">2 years</option>
+          <option value="1095" selected>3 years</option>
+          <option value="1825">5 years</option>
+        </select>
+        <button id="bt-run">▶ Run backtest</button>
+        <span id="bt-status" class="muted" style="font-size:12px"></span>
+      </p>
+      <div id="bt-results"></div>
+    </div>
+    <div class="disclaimer">⚠️ Algorithmic screening for educational purposes only — not investment advice. Swing positions are held overnight and can gap through a stop on news. A short can only be held overnight through futures. Consult a SEBI-registered advisor before trading.</div>
   </section>
 
   <!-- ============ INSIGHTS TAB ============ -->
@@ -379,6 +409,7 @@
         <option value="5minute">5 min</option>
         <option value="15minute">15 min</option>
         <option value="60minute">1 hour</option>
+        <option value="day">1 day</option>
       </select>
       <button class="chart-close" id="chart-close" title="Close (Esc)">✕</button>
     </div>
@@ -450,6 +481,28 @@ const GLOSSARY = {
     'The 12-period EMA minus the 26-period EMA, with a 9-period EMA of that as the signal line. The histogram (MACD minus signal) above zero is bullish momentum, below zero bearish. Scored +15 for a crossover in the last two bars, +10 for an older one still widening, +5 for one fading. Uses 5-minute candles once about 12:05 IST, when enough exist; daily candles before that, marked D.'],
   fno: ['F&O', 'Futures & Options',
     'Only stocks with exchange-traded futures and options are screened. F&O stocks are the most liquid on NSE, so entries and exits fill near the quoted price. With Kite connected the list comes from the exchange\'s instrument master; without it, from a static list kept in the code.'],
+  rsrank: ['RS rank', 'Relative Strength Rank',
+    'Where this stock\'s 3-12 month return ranks in the universe, as a percentile: 90 means it beat 90% of the others. The latest quarter counts double. Intermediate-term momentum is one of the most replicated effects in equity markets, India included.'],
+  rsi: ['RSI', 'Relative Strength Index (14)',
+    'Average gain over average loss for the last 14 days, scaled 0-100. In an uptrend, a dip to 40-55 is a pullback worth buying; above 75 the stock is stretched and prone to snap back.'],
+  high52: ['52-week high', null,
+    'The highest price of the past year. Stocks trading near it tend to keep rising (George & Hwang, 2004), partly because traders under-react to news that pushes a stock to a new high. It is also an obvious level where sellers wait, so a target beyond it is flagged.'],
+  breakout: ['Breakout', null,
+    'A close above the highest close of the previous 20 sessions, on at least 1.5× the 50-day average volume. The volume matters: a new high nobody traded is often a false one. Stop goes back below the breakout level.'],
+  pullback: ['Pullback buy', null,
+    'A stock in an uptrend (above its 50-day average) that has dipped to within 3% of its 20-day average with RSI 40-55. It enters a strong trend at a discount instead of chasing it. Stop goes below the last 10 days\' low.'],
+  breakdown: ['Breakdown', null,
+    'The short-side mirror of a breakout: a close below the lowest close of the previous 20 sessions on expanded volume. Held through futures, since a cash short cannot be held overnight.'],
+  rally: ['Rally sell', null,
+    'The short-side mirror of a pullback: a stock in a downtrend that has bounced to its 20-day average with RSI 45-60. Held through futures.'],
+  timestop: ['Time stop', null,
+    'Exit at the close of the 10th session if neither the stop nor the target has been reached. A swing setup that has not worked in two weeks has usually stopped working, and the capital is better used elsewhere.'],
+  backtest: ['Backtest', null,
+    'Replays this exact formula day by day over real NSE history, seeing only the data available on each day. Entries at the next day\'s open, costs included, stop assumed hit first when a bar touches both. It measures the formula; it does not promise future returns.'],
+  expectancy: ['Avg R', 'Expectancy per Trade',
+    'The average result per trade in multiples of the risk taken. +0.3R means that, on average, each trade made 0.3 times what it risked. Above zero after costs is the bar a strategy must clear; win rate alone says nothing without it.'],
+  profitfactor: ['Profit factor', null,
+    'Total gains divided by total losses. Above 1 makes money; 1.5 or more is solid for a swing system. Below 1, the losers outweigh the winners.'],
   lotsize: ['Lot', 'F&O Lot Size',
     'The number of shares in one futures or options contract, from the nearest expiry. Exchanges revise lots periodically. Shown only with Kite connected — never guessed, because a wrong lot size sizes a real position wrongly.'],
   ltp: ['LTP', 'Last Traded Price',
@@ -657,6 +710,34 @@ const GUIDE = [
     <p>A corporate event on the day is shown but deliberately <strong>not scored</strong>: earnings and
     announcements move prices for reasons the technicals cannot see, in either direction.</p>`],
 
+  ['<span id="guide-swing"></span>Swing trading: how the formula works', `
+    <p>Swing picks are held for days, not minutes, so they are scored on <strong>completed daily candles</strong> with a
+    different formula. It is built from the factors with the strongest published evidence at this horizon — and
+    the <strong>Backtest</strong> panel on the Swing tab replays it on real NSE history so you can judge it on results,
+    not on this description.</p>
+    <table class="signal-table">
+      <tr><td><strong>Trend template</strong><br><span class="muted">"Stage 2": price above MA50 above MA200, with MA200 rising over the last month. Half if price and MA50 are above MA200 but the trend is not confirmed.</span></td><td class="w plus">+25 / +12</td></tr>
+      <tr><td><strong>Relative strength rank</strong><br><span class="muted">3-12 month return against the rest of the universe, latest quarter weighted double. Top quarter or upper half.</span></td><td class="w plus">+20 / +10</td></tr>
+      <tr><td><strong>Near the 52-week high</strong><br><span class="muted">Within 5% of it, or within 15%.</span></td><td class="w plus">+15 / +8</td></tr>
+      <tr><td><strong>Entry trigger</strong><br><span class="muted">A breakout to a 20-day closing high on 1.5× volume, <em>or</em> a pullback to MA20 in an uptrend with RSI 40-55. A new high on light volume scores 8 and is not a trigger.</span></td><td class="w plus">+20</td></tr>
+      <tr><td><strong>Daily MACD</strong><br><span class="muted">Fresh crossover, or momentum still building. Kept small: it overlaps relative strength.</span></td><td class="w plus">+10 / +5</td></tr>
+      <tr><td><strong>Range tightening</strong><br><span class="muted">10-day range under 75% of the 50-day — a stock coiling before it moves.</span></td><td class="w plus">+10</td></tr>
+      <tr><td><strong>Extended from MA20</strong><br><span class="muted">More than 8% away — late, with a poor stop distance.</span></td><td class="w minus">−15</td></tr>
+      <tr><td><strong>RSI overbought / oversold</strong><br><span class="muted">Above 75 for a buy, below 25 for a sell.</span></td><td class="w minus">−10</td></tr>
+      <tr><td><strong>Unsuitable daily range</strong><br><span class="muted">Outside 0.4×-2.2× the universe's median daily ATR.</span></td><td class="w minus">−10</td></tr>
+    </table>
+    <p>Shorts score the mirror image of every rule. A stock becomes a <strong>pick</strong> only with an entry trigger and
+    a score of 50 or more; strong stocks without a trigger go on the <strong>watchlist</strong>.</p>
+    <p><strong>The trade plan.</strong> The stop goes where the setup is proven wrong — back below the breakout level, or
+    below the last 10 days' low for a pullback — then held between 1 and 3 daily ATRs. Targets at 2R and 3R,
+    because swing win rates usually sit below half and the winners must be well over twice the losers. Exit after
+    10 sessions if neither is reached. After a close, the plan uses that close; during market hours a live price
+    marks a plan as stale if it has already passed the stop or the first target.</p>
+    <p><strong>Sizing.</strong> Cash positions are sized at 1× — intraday MIS leverage does not apply overnight. Shorts can
+    only be held overnight through futures, so a SELL card shows what one futures lot risks instead.</p>
+    <p><strong>What it cannot promise.</strong> No formula guarantees high returns. These effects are averages over decades,
+    they weaken once widely traded, and they can fail for years. Run the backtest, and trust it over this page.</p>`],
+
   ['Why relative strength matters', `
     <p>The screener judges each stock against the others available to trade today, not against fixed thresholds.
     This is the difference between a strong stock and a strong market.</p>
@@ -800,7 +881,7 @@ $('#theme-btn').onclick = () => {
 function rethemeCharts() {
   if (!charts) return;
   const t = chartTheme();
-  for (const c of [charts.price, charts.cog]) {
+  for (const c of [charts.price, charts.cogChart]) {
     c.applyOptions({
       layout: { background: { color: t.bg }, textColor: t.text },
       grid: { vertLines: { color: t.grid }, horzLines: { color: t.grid } },
@@ -1238,6 +1319,213 @@ function renderInsights(d) {
   });
 }
 
+// ---------- Swing tab ----------
+let latestSwing = null;
+let swingInFlight = false;
+
+const SETUP_LABEL = {
+  BREAKOUT: ['▲ Breakout', 'long'], PULLBACK: ['↘ Pullback buy', 'long'],
+  BREAKDOWN: ['▼ Breakdown', 'short'], RALLY: ['↗ Rally sell', 'short'], WATCH: ['Watch', 'info'],
+};
+
+function swingScoreTip(p) {
+  const line = b => `<tr${b.points < 0 ? ' class="muted-row"' : ''}><td>${b.label}</td><td class="pts">${b.points > 0 ? '+' : ''}${b.points}</td></tr>`;
+  const clamped = p.rawTotal != null && p.rawTotal !== p.score;
+  return `<div class="tip-title">Why this scores ${p.score}/100</div>
+    <div class="tip-full">${p.direction === 'LONG' ? 'BUY' : 'SELL'} side, daily candles</div>
+    <table>${(p.breakdown || []).map(line).join('')}
+      ${clamped ? `<tr class="muted-row"><td>Raw total ${p.rawTotal}, ${p.rawTotal > 100 ? 'capped at 100' : 'floored at 0'}</td><td class="pts"></td></tr>` : ''}
+      <tr class="total"><td>Swing score</td><td class="pts">${p.score}/100</td></tr></table>
+    <div class="tip-body" style="margin-top:6px">Needs an entry trigger and a score of 50 or more to be a pick.</div>`;
+}
+
+function renderSwing(d) {
+  const when = new Date(d.generatedAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
+  const uf = d.universeFilter;
+  $('#swing-source').innerHTML = (d.dataSource === 'KITE_LIVE'
+    ? `🟢 Real daily history from Kite · ${d.realDataCoverage} stocks`
+    : '🟡 Simulated daily history (connect Kite for real data)')
+    + ` · ${uf ? uf.included + ' F&O stocks' : ''} · generated ${when} IST`;
+
+  // Swing positions are delivery (cash) or futures: no intraday MIS leverage.
+  const capital = latest?.funds?.net > 0 ? latest.funds.net : 100000;
+  const capitalLabel = latest?.funds?.net > 0
+    ? `your ₹${Math.round(latest.funds.net).toLocaleString('en-IN')} balance` : 'a ₹1,00,000 notional account';
+
+  const list = $('#swing-list');
+  if (!d.picks.length) {
+    list.innerHTML = '<div class="card muted">No stock has a swing entry trigger today. That is a normal result, not an error — the watchlist below shows what is setting up.</div>';
+  } else {
+    list.innerHTML = d.picks.map((p, i) => {
+      const L = p.levels, ind = p.indicators;
+      const [setupText, setupCls] = SETUP_LABEL[p.setup] || SETUP_LABEL.WATCH;
+      const isShort = p.direction === 'SHORT';
+      // Levels are fixed at the signal close; entering at today's price changes
+      // the distance to the stop, so size on the live risk when there is one.
+      const entryNow = L.liveEntry ?? L.referenceEntry;
+      const riskNow = L.liveRiskPerShare ?? L.riskPerShare;
+      const cash = isShort ? null : positionSize(entryNow, riskNow, capital, 1);
+      const lotRisk = p.lotSize ? p.lotSize * riskNow : null;
+      const sizing = [
+        isShort
+          ? `<b>Short via futures only</b> — Indian cash-market shorts must be squared off the same day`
+          : cash ? `Cash (delivery, 1×): <b>${cash.qty} shares</b> = ₹${fmt(Math.round(cash.notional))} · ₹${fmt(Math.round(cash.riskAtStop))} at risk (${cash.actualRiskPct.toFixed(2)}% of ${capitalLabel})${cash.boundBy === 'margin' ? ' · capped by capital' : ''}` : '',
+        lotRisk != null
+          ? `Futures: 1 lot = ${p.lotSize} shares, risks ₹${fmt(Math.round(lotRisk))} (${(lotRisk / capital * 100).toFixed(1)}% of capital)${lotRisk > capital * 0.02 ? ' <span class="blocked">⚠ one lot exceeds a 2% risk</span>' : ''}`
+          : `<span class="muted">Futures lot size shown when Kite is connected</span>`,
+      ].filter(Boolean).join('<br>');
+      return `
+      <div class="card pick ${p.direction.toLowerCase()}" style="animation-delay:${i * 70}ms" data-swing="${p.symbol}">
+        <div class="pick-head">
+          <span class="sym">${p.symbol}</span>
+          <span class="badge action ${p.direction.toLowerCase()}">${isShort ? 'SELL' : 'BUY'}</span>
+          <span class="badge ${setupCls}" data-tip="${p.setup.toLowerCase()}" tabindex="0">${setupText}</span>
+          <span class="badge info">${p.sector}</span>
+          <span class="badge ${p.real ? 'long' : 'info'}" data-tip="real" tabindex="0">${p.real ? '● REAL' : '○ SIM'}</span>
+          ${p.eventToday ? `<span class="badge short" title="${p.eventToday}">⚠ EVENT</span>` : ''}
+          <span class="name">${p.name}</span>
+          <span class="score" data-tip="score" data-tip-html="${swingScoreTip(p).replace(/"/g, '&quot;')}" tabindex="0">swing score <b data-target="${p.score}">0</b>/100</span>
+        </div>
+        <div style="margin-top:6px">₹${fmt(p.ltp)}
+          <span class="muted" style="font-size:12px">· ${tip('rsrank', 'RS rank')} ${fmt(ind.rsPercentile)}th pct · 3m ${pct(ind.return3m)} · 12m ${pct(ind.return12m)}</span></div>
+        <ul class="reasons">${p.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
+        <div class="plan">
+          <div>${tip('entry', 'Entry')}<b>₹${fmt(entryNow)}</b></div>
+          <div class="sl">${tip('stoploss', 'Stop loss')}<b>₹${fmt(L.stopLoss)}</b></div>
+          <div class="t1">${tip('target1', 'Target 1')}<b>₹${fmt(L.target1)}</b><span class="rr" style="display:inline" data-tip="risk" tabindex="0">2R</span></div>
+          <div class="t2">${tip('target2', 'Target 2')}<b>₹${fmt(L.target2)}</b><span class="rr" style="display:inline" data-tip="risk" tabindex="0">3R</span>
+            ${L.target2Blocked ? `<span class="blocked" data-tip="high52" tabindex="0">⚠ 52-week ${isShort ? 'low' : 'high'} ₹${fmt(L.barrier)} sits before this level</span>` : ''}</div>
+        </div>
+        <p class="plan-note">Levels from the signal close ₹${fmt(L.referenceEntry)} · risk ₹${fmt(L.riskPerShare)}/share (${L.riskPct}%) · stop ${L.stopBasis} ·
+          ${L.liveEntry != null && L.liveEntry !== L.referenceEntry ? `<b>at ₹${fmt(L.liveEntry)} now, risk is ₹${fmt(L.liveRiskPerShare)}/share</b> ·` : ''}
+          ${tip('timestop', 'time stop')} ${L.timeStopSessions} sessions<br>${sizing}</p>
+        <div class="levels">
+          <div>${tip('sma', 'MA 20 / 50 / 200')}₹${fmt(ind.sma20)} / ₹${fmt(ind.sma50)} / ₹${fmt(ind.sma200)}</div>
+          <div>${tip('rsi', 'RSI (14)')}${fmt(ind.rsi)}</div>
+          <div>${tip('high52', '52-week range')}₹${fmt(ind.low52)}–₹${fmt(ind.high52)} <span class="muted">(${pct(ind.pctFromHigh52)} from high)</span></div>
+          <div>${tip('atr', 'Daily ATR')}${fmt(ind.atr)} <span class="muted">(${ind.atrPct}%)</span></div>
+          <div>${tip('relvolume', 'Volume vs 50-day')}${fmt(ind.volRatio)}×</div>
+        </div>
+        <div class="chart-hint">📊 Click for the daily chart</div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.score b[data-target]').forEach((el, i) => {
+      setTimeout(() => countUpTo(el, Number(el.dataset.target)), i * 70 + 120);
+    });
+    list.querySelectorAll('[data-swing]').forEach(card => {
+      card.onclick = () => openChart(card.dataset.swing, { board: 'swing', interval: 'day' });
+    });
+  }
+
+  $('#swing-watch').innerHTML = d.watchlist.length
+    ? `<tr><th>Symbol</th><th>Side</th><th>${tip('score', 'Score')}</th><th>${tip('rsrank', 'RS rank')}</th><th>${tip('rsi', 'RSI')}</th><th>From 52w high</th><th>Waiting for</th></tr>` +
+      d.watchlist.map(w => `<tr data-swing="${w.symbol}" style="cursor:pointer">
+        <td><b>${w.symbol}</b> <span class="muted" style="font-size:11px">${w.sector}</span></td>
+        <td><span class="badge ${w.direction.toLowerCase()}" style="font-size:10px">${w.direction === 'LONG' ? 'BUY' : 'SELL'}</span></td>
+        <td>${w.score}</td><td>${fmt(w.indicators.rsPercentile)}</td><td>${fmt(w.indicators.rsi)}</td>
+        <td class="${cls(w.indicators.pctFromHigh52)}">${pct(w.indicators.pctFromHigh52)}</td>
+        <td class="muted" style="font-size:12px">${w.direction === 'LONG'
+          ? 'a close above the 20-day high on volume, or a dip to MA20'
+          : 'a close below the 20-day low on volume, or a bounce to MA20'}</td></tr>`).join('')
+    : '<tr><td class="muted">Nothing strong enough to watch today.</td></tr>';
+  $('#swing-watch').querySelectorAll('[data-swing]').forEach(row => {
+    row.onclick = () => openChart(row.dataset.swing, { board: 'swing', interval: 'day' });
+  });
+}
+
+async function loadSwing() {
+  if (swingInFlight) return;
+  swingInFlight = true;
+  if (!latestSwing) $('#swing-list').innerHTML = skeletonPicks(2);
+  try {
+    const r = await api('/api/insights/swing');
+    if (r.status === 401) { location.href = '/login.html'; return; }
+    const data = await r.json().catch(() => null);
+    if (!r.ok || !data || !Array.isArray(data.picks)) {
+      $('#swing-list').innerHTML = `<div class="card"><b>Could not build swing picks.</b><div class="muted">HTTP ${r.status}: ${data?.error || 'malformed response'}</div></div>`;
+      return;
+    }
+    latestSwing = data;
+    renderSwing(data);
+  } catch {
+    $('#swing-list').innerHTML = '<div class="card"><b>Could not reach the server.</b></div>';
+  } finally {
+    swingInFlight = false;
+  }
+}
+
+function renderBacktest(b) {
+  if (!b.available) {
+    $('#bt-results').innerHTML = `<div class="no-levels"><b>Backtest not run</b><div>${b.reason}</div></div>`;
+    return;
+  }
+  const rows = Object.entries(b.variants);
+  // "Best" means best measured, and only among variants with enough trades for
+  // the average to mean anything — a 5-trade variant can top any table by luck.
+  const MIN_TRADES = 30;
+  const ranked = rows.filter(([, v]) => v.trades >= MIN_TRADES).sort((a, b2) => b2[1].avgR - a[1].avgR);
+  const bestKey = ranked.length && ranked[0][1].avgR > 0 ? ranked[0][0] : null;
+  const cell = (v, k, f = x => x) => (v[k] == null ? '—' : f(v[k]));
+
+  $('#bt-results').innerHTML = `
+    <p class="muted" style="font-size:12px;margin:0 0 8px">${b.stocks} stocks · ${b.from} to ${b.to} ·
+      ${b.costPctRoundTrip}% round-trip cost per trade · equity assumes ${b.riskPerTradePct}% risked per trade ·
+      equal-weight buy &amp; hold over the same period: <b class="${cls(b.benchmarkBuyHoldPct)}">${pct(b.benchmarkBuyHoldPct)}</b>
+      ${b.missing?.length ? `· no data for ${b.missing.join(', ')}` : ''}</p>
+    <div style="overflow:auto"><table>
+      <tr><th>Variant</th><th>Trades</th><th>Win rate</th><th>${tip('expectancy', 'Avg R')}</th><th>${tip('profitfactor', 'Profit factor')}</th>
+        <th>Total R</th><th>Equity ×</th><th>Max drawdown</th><th>Avg hold</th></tr>
+      ${rows.map(([k, v]) => `<tr${k === bestKey ? ' style="background:rgba(63,185,80,.08)"' : ''}>
+        <td>${v.label}${k === bestKey ? ' <span class="badge long" style="font-size:10px">best measured</span>' : ''}${v.trades > 0 && v.trades < MIN_TRADES ? ' <span class="muted" style="font-size:11px">(too few trades to judge)</span>' : ''}</td>
+        <td>${v.trades}</td><td>${cell(v, 'winRatePct', x => x + '%')}</td>
+        <td class="${cls(v.avgR)}"><b>${cell(v, 'avgR', x => (x > 0 ? '+' : '') + x + 'R')}</b></td>
+        <td>${cell(v, 'profitFactor')}</td><td class="${cls(v.totalR)}">${cell(v, 'totalR', x => (x > 0 ? '+' : '') + x + 'R')}</td>
+        <td>${cell(v, 'equityMultiple', x => x + '×')}</td><td class="neg">${cell(v, 'maxDrawdownPct', x => '−' + x + '%')}</td>
+        <td>${cell(v, 'avgHoldSessions', x => x + ' d')}</td></tr>`).join('')}
+    </table></div>
+    ${!bestKey ? '<p class="neg" style="font-size:13px"><b>No variant showed a positive average over enough trades in this period.</b> On this evidence the formula should not be traded as it stands.</p>' : ''}
+    <ul class="muted" style="font-size:12px;margin:10px 0 0;padding-left:18px">${b.caveats.map(c => `<li>${c}</li>`).join('')}</ul>
+    ${b.trades?.length ? `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer">Latest ${Math.min(25, b.trades.length)} trades (all setups)</summary>
+      <div style="overflow:auto"><table style="margin-top:6px">
+        <tr><th>Symbol</th><th>Side</th><th>Setup</th><th>Entry day</th><th>Entry</th><th>Exit</th><th>Exit reason</th><th>Days</th><th>R</th></tr>
+        ${b.trades.slice(-25).reverse().map(t => `<tr><td>${t.symbol}</td><td>${t.direction === 'LONG' ? 'BUY' : 'SELL'}</td><td>${t.setup}</td>
+          <td>${t.entryDay}</td><td>₹${fmt(t.entry)}</td><td>₹${fmt(t.exit)}</td><td class="muted">${t.reason}</td><td>${t.held}</td>
+          <td class="${cls(t.r)}">${t.r > 0 ? '+' : ''}${t.r}</td></tr>`).join('')}
+      </table></div></details>` : ''}`;
+}
+
+$('#bt-run').onclick = async () => {
+  const btn = $('#bt-run');
+  btn.disabled = true;
+  $('#bt-status').textContent = 'Fetching daily history from Kite and replaying the formula… this takes a few seconds per year of data.';
+  try {
+    const r = await api(`/api/insights/swing/backtest?days=${$('#bt-days').value}`);
+    const data = await r.json().catch(() => null);
+    if (!r.ok || !data) throw new Error(data?.error || `HTTP ${r.status}`);
+    renderBacktest(data);
+    $('#bt-status').textContent = data.available ? `Done in ${(data.computeMs / 1000).toFixed(1)}s.` : '';
+  } catch (err) {
+    $('#bt-status').textContent = '';
+    $('#bt-results').innerHTML = `<div class="no-levels"><b>Backtest failed</b><div>${err.message}</div></div>`;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+// Daily candles change once a day, so the tab loads when first opened and then
+// refreshes slowly — every ten minutes keeps the live-price validity checks
+// current without re-scoring a year of history every minute.
+document.querySelector('nav button[data-tab="swing"]').addEventListener('click', () => {
+  if (!latestSwing) loadSwing();
+});
+setInterval(() => { if (latestSwing) loadSwing(); }, 10 * 60_000);
+
+$('#swing-guide-link').onclick = e => {
+  e.preventDefault();
+  document.querySelector('nav button[data-tab="guide"]').click();
+  setTimeout(() => document.getElementById('guide-swing')?.scrollIntoView({ behavior: 'smooth' }), 50);
+};
+
 // ---------- Kite Connect ----------
 $('#redirect-url').textContent = location.origin + '/api/kite/callback';
 
@@ -1454,7 +1742,11 @@ function buildCharts() {
   sync(price, cog);
   sync(cog, price);
 
-  charts = { price, cog, ...series };
+  // The COG *pane* is `cogChart`. It used to be stored as `cog`, which the
+  // spread below then overwrote with the COG *line series* of the same name —
+  // so the zoom reset threw on every chart open, and the pane silently
+  // ignored light/dark theme switches.
+  charts = { price, cogChart: cog, ...series };
   return charts;
 }
 
@@ -1488,8 +1780,8 @@ function drawPriceLines() {
     add(lastPayload.studies.volumeProfile.poc, CHART_COLORS.poc, 'POC', 0);
   }
   if (studyState.levels && chartSymbol) {
-    const pick = latest?.picks?.find(p => p.symbol === chartSymbol);
-    if (pick) {
+    const pick = chartPick();
+    if (pick?.levels) {
       add(pick.levels.referenceEntry, CHART_COLORS.entry, 'Entry', 0);
       add(pick.levels.stopLoss, CHART_COLORS.stop, 'SL');
       add(pick.levels.target1, CHART_COLORS.t1, 'T1');
@@ -1522,7 +1814,9 @@ function renderChart(payload, { keepView }) {
   const last = c[c.length - 1];
   $('#chart-foot').innerHTML = [
     // Kite spells the 1-minute interval "minute", with no leading 1.
-    `${c.length} × ${(payload.interval === 'minute' ? '1' : payload.interval.replace('minute', ''))}-min candles`,
+    payload.interval === 'day'
+      ? `${c.length} × daily candles`
+      : `${c.length} × ${(payload.interval === 'minute' ? '1' : payload.interval.replace('minute', ''))}-min candles`,
     last ? `O ${fmt(last.open)} H ${fmt(last.high)} L ${fmt(last.low)} C ${fmt(last.close)}` : '',
     s.regressionPeriod ? `Regression ${s.regressionPeriod}-bar ±2σ` : '',
     s.volumeProfile?.poc != null ? `POC ₹${fmt(s.volumeProfile.poc)}` : '',
@@ -1530,7 +1824,7 @@ function renderChart(payload, { keepView }) {
   ].filter(Boolean).map(x => `<span>${x}</span>`).join('');
 
   drawPriceLines();
-  if (!keepView) { charts.price.timeScale().fitContent(); charts.cog.timeScale().fitContent(); }
+  if (!keepView) { charts.price.timeScale().fitContent(); charts.cogChart.timeScale().fitContent(); }
 }
 
 async function loadChartData({ keepView = false } = {}) {
@@ -1551,9 +1845,25 @@ async function loadChartData({ keepView = false } = {}) {
   renderChart(payload, { keepView });
 }
 
-function openChart(symbol) {
+// Which board opened the chart. Levels are drawn from that board's pick: a
+// stock can be an intraday pick and a swing pick at once, and drawing intraday
+// stops onto a daily chart opened from the swing tab would be silently wrong.
+let chartBoard = 'intraday';
+function chartPick() {
+  if (!chartSymbol) return null;
+  const src = chartBoard === 'swing'
+    ? [...(latestSwing?.picks || []), ...(latestSwing?.watchlist || [])]
+    : (latest?.picks || []);
+  return src.find(p => p.symbol === chartSymbol) || null;
+}
+
+function openChart(symbol, { board = 'intraday', interval = null } = {}) {
   chartSymbol = symbol;
-  const pick = latest?.picks?.find(p => p.symbol === symbol);
+  chartBoard = board;
+  // Swing setups live on daily candles; open there rather than on 1-minute bars.
+  if (interval) $('#chart-interval').value = interval;
+  else if (board === 'intraday' && $('#chart-interval').value === 'day') $('#chart-interval').value = 'minute';
+  const pick = chartPick();
   $('#chart-sym').textContent = symbol;
   $('#chart-dir').textContent = pick ? (pick.direction === 'LONG' ? 'BUY' : 'SELL') : '';
   $('#chart-dir').className = 'badge action ' + (pick ? pick.direction.toLowerCase() : '');

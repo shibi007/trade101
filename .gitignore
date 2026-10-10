@@ -55,3 +55,6 @@ coverage/
 
 # Local user credentials (scrypt hashes) — never commit
 data/
+
+# Build stamp written by scripts/write-version.js on install
+version.json

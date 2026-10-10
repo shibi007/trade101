@@ -47,6 +47,7 @@ import adminRoutes from './routes/admin.js';
 import { requireAuth, getSession, parseCookies, SESSION_COOKIE, hasUsers, createUser } from './services/authService.js';
 import { attachTickerHub } from './services/tickerHub.js';
 import { initStore, closeStore } from './services/store.js';
+import { getVersion } from './services/version.js';
 
 // Restore persistent state and run migrations before anything is served. On a
 // host that wipes its disk, this is what brings users and saved Kite keys back
@@ -116,7 +117,8 @@ app.use((err, req, res, next) => {
 
 // Start server
 server.listen(PORT, () => {
-  console.log(`🚀 Trade101 Server running on http://localhost:${PORT}`);
+  const v = getVersion();
+  console.log(`🚀 Trade101 v${v.version}${v.commit ? ` (${v.commit})` : ''} running on http://localhost:${PORT}`);
   console.log(`📊 Market Configuration: India NSE/BSE Intraday Trading`);
   console.log(`⏰ Market Hours: 9:15 AM - 3:30 PM IST`);
 });

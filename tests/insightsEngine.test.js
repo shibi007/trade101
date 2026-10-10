@@ -15,6 +15,7 @@ import {
   computeIndicators,
   computeMACD,
   maDistancePct,
+  prior52Range,
   generateInsights,
   generateIntradaySeries,
   normalisePinned,
@@ -182,6 +183,10 @@ function randomUniverse(n, seed = 7) {
         expanding: rnd() > 0.5, crossedRecently: rnd() > 0.8,
       } : null,
       macdTimeframe: hasMACD ? pick(['5m', '1d']) : null,
+      // Some stocks sit beyond their 52-week range so the breakout signal is
+      // exercised by the rank-ordering property tests too.
+      prior52High: rnd() > 0.5 ? ltp * (0.97 + rnd() * 0.06) : null,
+      prior52Low: rnd() > 0.5 ? ltp * (0.94 + rnd() * 0.06) : null,
     });
   });
 }
@@ -665,4 +670,66 @@ test('a stretched uptrend outranks a marginal one on an otherwise tied score', (
   const marginal = scoreStock(ind({ ltp: 101, sma20: 100.5, sma50: 100 }), ctx);
   assert.equal(strong.score, marginal.score, 'precondition: same discrete score');
   assert.ok(strong.rankScore > marginal.rankScore);
+});
+
+// ---------- 52-week breakout ----------
+
+const dailyBars = (n, f) => Array.from({ length: n }, (_, i) => ({ high: f(i) + 1, low: f(i) - 1, close: f(i) }));
+
+test('prior52Range is the highest high and lowest low of the last 252 sessions', () => {
+  // 300 bars; the all-time extreme at bar 10 is outside the last 252 and must not count.
+  const bars = dailyBars(300, i => (i === 10 ? 999 : 100 + (i % 7)));
+  assert.deepEqual(prior52Range(bars), { prior52High: 107, prior52Low: 99 });
+});
+
+test('prior52Range refuses to call a short history a 52-week range', () => {
+  assert.deepEqual(prior52Range(dailyBars(150, () => 100)), { prior52High: null, prior52Low: null });
+  assert.deepEqual(prior52Range(null), { prior52High: null, prior52Low: null });
+});
+
+test('price above the prior 52-week high scores a long breakout', () => {
+  const s = scoreStock(ind({ ltp: 1010, prior52High: 1000, prior52Low: 700 }));
+  const b = s.breakdown.find(x => /52-week high/.test(x.label));
+  assert.deepEqual([b.points, b.side], [10, 'LONG']);
+});
+
+test('price below the prior 52-week low scores a short breakdown', () => {
+  const s = scoreStock(ind({ ltp: 690, prior52High: 1000, prior52Low: 700, aboveVwap: false }));
+  const b = s.breakdown.find(x => /52-week low/.test(x.label));
+  assert.deepEqual([b.points, b.side], [10, 'SHORT']);
+});
+
+test('price inside the 52-week range scores nothing for it', () => {
+  const s = scoreStock(ind({ ltp: 999, prior52High: 1000, prior52Low: 700 }));
+  assert.ok(!s.reasons.some(r => /52-week/.test(r)));
+});
+
+test('touching the 52-week high exactly is not a breakout', () => {
+  const s = scoreStock(ind({ ltp: 1000, prior52High: 1000, prior52Low: 700 }));
+  assert.ok(!s.reasons.some(r => /52-week/.test(r)));
+});
+
+test('no daily history means no 52-week signal, not a guess', () => {
+  const s = scoreStock(ind({ ltp: 5000, prior52High: null, prior52Low: null }));
+  assert.ok(!s.reasons.some(r => /52-week/.test(r)));
+});
+
+test('the breakout is judged on the live price, not the candle close', () => {
+  // generateInsights overwrites ind.ltp with the live quote before scoring, so
+  // the same indicators must flip as the price crosses the level.
+  const below = scoreStock(ind({ ltp: 995, prior52High: 1000 }));
+  const above = scoreStock(ind({ ltp: 1005, prior52High: 1000 }));
+  assert.ok(!below.reasons.some(r => /52-week/.test(r)));
+  assert.ok(above.reasons.some(r => /52-week/.test(r)));
+});
+
+test('52-week levels are carried through to indicators and the pick', () => {
+  const candles = Array.from({ length: 5 }, (_, t) => ({ t, open: 100, high: 101, low: 99, close: 100, volume: 1000 }));
+  const i = computeIndicators({ prevClose: 100, open: 100, candles, prior52High: 120, prior52Low: 80 });
+  assert.equal(i.prior52High, 120);
+  assert.equal(i.prior52Low, 80);
+  const empty = computeIndicators({ prevClose: 100, open: 100, candles: [], prior52High: 120, prior52Low: 80 });
+  assert.equal(empty.prior52High, 120, 'kept on the no-candles path too');
+  const pick = buildPick({ symbol: 'X', name: 'X', sector: 'Y' }, { ...i, atr: 1 }, scoreStock(i));
+  assert.equal(pick.indicators.prior52High, 120);
 });

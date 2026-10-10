@@ -55,6 +55,7 @@ clamped to 0–100, is the score. Only setups scoring **40 or more** are shown.
 | 30-minute momentum | Move over the last 6 candles beyond ±0.3% | +15 |
 | Volume surge | Above 1.3× session average, credited to the side of the relative move | +15 |
 | Gap holding | Gap beyond ±0.4% that extended rather than filled | +15 |
+| **52-week breakout** | Price above the prior year's high / below its low *(needs Kite daily history)* | **+10** |
 | **MACD (12, 26, 9)** | Histogram above / below zero: fresh crossover (last 2 bars) · older and widening · older and fading | **+15 · +10 · +5** |
 | **MA20 / MA50 trend** | Stacked (price > MA20 > MA50, or reverse) · price across MA20 only | **+12 · +6** |
 | Range position | Near the day high (>80%) / low (<20%) | +10 |
@@ -70,6 +71,11 @@ anchored to the data rather than fixed percentages so it holds on any timeframe.
 **When the trend signals are available:**
 
 - **MA20 / MA50** are daily averages and need Kite's historical data. In simulated mode they never fire.
+- **52-week breakout** compares the live price with the highest high / lowest low of the prior 252 sessions,
+  from the same Kite daily history, which ends yesterday. Excluding today is what makes a breakout detectable:
+  a 52-week high that included today's high would rise with the price. It needs 200+ sessions of history,
+  and is weighted +10 because a stock at a yearly high usually trips the opening-range and range-position
+  signals too.
 - **MACD** uses 5-minute candles once 34 exist (about 12:05 IST). Before that it uses daily MACD when Kite
   history is available, labelled as daily; otherwise it is absent. Values match TradingView's `ta.macd`.
 

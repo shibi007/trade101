@@ -316,9 +316,26 @@ async function fetchRealSeries(token, symbol) {
     sma20: sma(dailyCloses, 20),
     sma50: sma(dailyCloses, 50),
     sma200: sma(dailyCloses, 200),
+    // The prior year's extremes. `daily` ends yesterday, so today is excluded
+    // by construction — which is what lets a breakout be detected at all: a
+    // 52-week high that included today's high would rise with the price and
+    // could never be broken.
+    ...prior52Range(daily),
     // Daily MACD is the fallback before the session has enough 5-minute bars
     // for its own; a year of daily closes is plenty to warm it up.
     macdDaily: computeMACD(dailyCloses),
+  };
+}
+
+/** Highest high and lowest low over the last 252 sessions of completed daily candles. */
+export function prior52Range(daily) {
+  const year = (daily || []).slice(-252).filter(c => c && c.high > 0 && c.low > 0);
+  // A few weeks of history is not a 52-week range; claiming one would turn a
+  // recent listing's short history into a "yearly high" breakout.
+  if (year.length < 200) return { prior52High: null, prior52Low: null };
+  return {
+    prior52High: round2(Math.max(...year.map(c => c.high))),
+    prior52Low: round2(Math.min(...year.map(c => c.low))),
   };
 }
 
@@ -343,6 +360,7 @@ export function computeIndicators(series) {
       gapPct: 0, changePct: 0, rangePosition: 50,
       volume: 0,
       sma20: series.sma20 ?? null, sma50: series.sma50 ?? null, sma200: series.sma200 ?? null,
+      prior52High: series.prior52High ?? null, prior52Low: series.prior52Low ?? null,
       macd: series.macdDaily ?? null, macdTimeframe: series.macdDaily ? '1d' : null,
       real: series.real ?? false,
       noData: true,
@@ -434,6 +452,8 @@ export function computeIndicators(series) {
     sma20: series.sma20 ?? null,
     sma50: series.sma50 ?? null,
     sma200: series.sma200 ?? null,
+    prior52High: series.prior52High ?? null,
+    prior52Low: series.prior52Low ?? null,
     ...pickMACD(candles, series),
   };
 }
@@ -604,6 +624,26 @@ export function scoreStock(ind, context = null) {
       long += 6; note(`Reclaimed MA20 (${ind.sma20}) but MA20 still under MA50 (${ind.sma50}) — early turn, unconfirmed`, 6, 'LONG');
     } else if (below20) {
       short += 6; note(`Lost MA20 (${ind.sma20}) though MA20 still over MA50 (${ind.sma50}) — pullback, unconfirmed`, 6, 'SHORT');
+    }
+  }
+
+  // ---- 52-week breakout (needs Kite daily history) ----
+  //
+  // Price through the prior year's high or low, measured against `ind.ltp` so a
+  // live quote counts. The yearly high is a level the whole market can see:
+  // above it, everyone who bought in the last twelve months is in profit and
+  // there is no overhead supply waiting to sell into the move.
+  //
+  // Worth 10, not more. A stock clearing its 52-week high intraday is nearly
+  // always above its opening range and near its day high as well, so a larger
+  // weight would mostly re-count "the price went up". It earns a place because
+  // a yearly high is a different and well-documented level (George & Hwang,
+  // 2004) from a fifteen-minute range.
+  if (ind.ltp != null) {
+    if (ind.prior52High != null && ind.ltp > ind.prior52High) {
+      long += 10; note(`Broke above the 52-week high (₹${ind.prior52High})`, 10, 'LONG');
+    } else if (ind.prior52Low != null && ind.ltp < ind.prior52Low) {
+      short += 10; note(`Broke below the 52-week low (₹${ind.prior52Low})`, 10, 'SHORT');
     }
   }
 
@@ -844,6 +884,8 @@ export function buildPick(stock, ind, scored) {
       sma50: ind.sma50,
       sma200: ind.sma200,
       maDistancePct: maDistancePct(ind),
+      prior52High: ind.prior52High ?? null,
+      prior52Low: ind.prior52Low ?? null,
       macd: ind.macd ?? null,
       macdTimeframe: ind.macdTimeframe ?? null,
       // Live-only (null on simulated series)
@@ -1035,6 +1077,7 @@ export async function generateInsights(token, liveQuotes = null, options = {}) {
     real: s.ind.real, eventToday: s.ind.eventToday,
     sma20: s.ind.sma20, sma50: s.ind.sma50, sma200: s.ind.sma200,
     maDistancePct: maDistancePct(s.ind),
+    prior52High: s.ind.prior52High ?? null, prior52Low: s.ind.prior52Low ?? null,
     macdHistogram: s.ind.macd?.histogram ?? null, macdTimeframe: s.ind.macdTimeframe ?? null,
   }));
 

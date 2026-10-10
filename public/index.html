@@ -705,6 +705,7 @@ const GUIDE = [
       <tr><td><strong>Gap holding and extending</strong><br><span class="muted">An opening gap that kept going rather than filling.</span></td><td class="w plus">+15</td></tr>
       <tr><td><strong>Position in the day's range</strong><br><span class="muted">Near the high for longs, near the low for shorts.</span></td><td class="w plus">+10</td></tr>
       <tr><td><strong>Moving average trend (MA20 / MA50)</strong> <span class="muted">(needs Kite history)</span><br><span class="muted">Fully stacked — price above MA20 above MA50, or the reverse — is an established trend. Price across MA20 while the averages still point the other way is an early turn or a pullback, worth half.</span></td><td class="w plus">+12 / +6</td></tr>
+      <tr><td><strong>52-week breakout</strong> <span class="muted">(needs Kite history)</span><br><span class="muted">Price above the prior year's high, or below its low. Everyone who bought in the last twelve months is then in profit (or at a loss), so there is no overhead supply. Weighted modestly because a stock making a yearly high intraday usually trips the opening-range and range-position signals too.</span></td><td class="w plus">+10</td></tr>
       <tr><td><strong>MACD (12, 26, 9)</strong><br><span class="muted">Histogram above zero for longs, below for shorts. A crossover in the last two bars scores most; an older one still widening scores less; one that is fading, least. Uses 5-minute candles once about 12:05 IST, daily candles before that.</span></td><td class="w plus">+15 / +10 / +5</td></tr>
       <tr><td><strong>Order book imbalance</strong> <span class="muted">(live only)</span><br><span class="muted">Resting orders leaning meaningfully one way.</span></td><td class="w plus">+10</td></tr>
       <tr><td><strong>Wide spread</strong><br><span class="muted">Above 0.15% — your cost to get in and out eats the edge.</span></td><td class="w minus">−15</td></tr>
@@ -1308,7 +1309,9 @@ function renderInsights(d) {
       return `<tr><td><button class="pin-btn${isPinned ? ' pinned' : ''}" data-pin="${s.symbol}" style="position:static"
         title="${isPinned ? 'Unpin ' + s.symbol : 'Pin ' + s.symbol + ' to keep it on the picks board'}"
         aria-label="${isPinned ? 'Unpin' : 'Pin'} ${s.symbol}" aria-pressed="${isPinned}">${isPinned ? '📌' : '📍'}</button></td>
-      <td><span title="${s.real ? 'Real Kite historical data' : 'Simulated'}" style="color:var(--${s.real?'green':'muted'})">●</span> <b>${s.symbol}</b> <span class="muted" style="font-size:11px">${s.sector}</span>${s.eventToday ? ` <span class="badge short" style="font-size:10px" title="${s.eventToday}">EVENT</span>` : ''}</td>
+      <td><span title="${s.real ? 'Real Kite historical data' : 'Simulated'}" style="color:var(--${s.real?'green':'muted'})">●</span> <b>${s.symbol}</b> <span class="muted" style="font-size:11px">${s.sector}</span>${
+        s.prior52High != null && s.ltp > s.prior52High ? ` <span class="badge long" style="font-size:10px" title="Above the prior 52-week high of ₹${fmt(s.prior52High)}" data-tip="high52" tabindex="0">52W ▲</span>`
+        : s.prior52Low != null && s.ltp < s.prior52Low ? ` <span class="badge short" style="font-size:10px" title="Below the prior 52-week low of ₹${fmt(s.prior52Low)}" data-tip="high52" tabindex="0">52W ▼</span>` : ''}${s.eventToday ? ` <span class="badge short" style="font-size:10px" title="${s.eventToday}">EVENT</span>` : ''}</td>
       <td>₹${fmt(s.ltp)}</td><td class="${cls(s.changePct)}">${pct(s.changePct)}</td>
       <td class="${cls(s.gapPct)}">${pct(s.gapPct)}</td>
       <td>${s.aboveVwap ? '<span class="pos">above</span>' : '<span class="neg">below</span>'}</td>

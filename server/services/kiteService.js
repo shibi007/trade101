@@ -13,33 +13,21 @@
  * Docs: https://kite.trade/docs/connect/v3/
  */
 import crypto from 'crypto';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import { getSession } from './authService.js';
+import { readDoc, writeDoc, storeStatus } from './store.js';
 
 const KITE_BASE = 'https://api.kite.trade';
 const KITE_VERSION = '3';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CREDENTIALS_FILE = join(__dirname, '..', '..', 'data', 'kite.json');
-
+// Saved credentials live in the persistent store's `kite` document — the
+// database when DATABASE_URL is set, otherwise data/kite.json (0600, gitignored).
 function readCredentialsFile() {
-  try {
-    return JSON.parse(fs.readFileSync(CREDENTIALS_FILE, 'utf8'));
-  } catch {
-    return {};   // missing or malformed is fine — fall back to env/UI
-  }
+  const doc = readDoc('kite');
+  return doc && typeof doc === 'object' && !Array.isArray(doc) ? doc : {};
 }
 
 function writeCredentialsFile(data) {
-  fs.mkdirSync(dirname(CREDENTIALS_FILE), { recursive: true });
-  // 0600 so the file is not world-readable. Note this is a POSIX mode: on
-  // Windows Node only maps it to the read-only flag, so it does NOT restrict
-  // other accounts there. The gitignore on data/ is what keeps it out of the
-  // repo; filesystem-level protection is the operator's job.
-  fs.writeFileSync(CREDENTIALS_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
-  try { fs.chmodSync(CREDENTIALS_FILE, 0o600); } catch { /* best effort */ }
+  return writeDoc('kite', data);
 }
 
 /**
@@ -61,17 +49,26 @@ function loadStoredCredentials(username = null) {
   const apiKey = mine?.apiKey?.trim() || file.apiKey?.trim() || process.env.KITE_API_KEY || null;
   const apiSecret = mine?.apiSecret?.trim() || file.apiSecret?.trim() || process.env.KITE_API_SECRET || null;
 
+  // Where the pair came from, so the UI can say whether it survives a deploy:
+  // 'saved' by this user, the legacy shared pair in the file, the host's
+  // environment variables, or nothing.
+  const source = mine?.apiKey && mine?.apiSecret ? 'saved'
+    : file.apiKey && file.apiSecret ? 'shared'
+      : process.env.KITE_API_KEY && process.env.KITE_API_SECRET ? 'env'
+        : null;
+
   return {
     apiKey: apiKey || null,
     apiSecret: apiSecret || null,
-    // Whether these came from disk for *this* user, so the UI can show the
-    // saved state and lock the fields rather than inviting a re-entry.
-    persisted: Boolean(mine?.apiKey && mine?.apiSecret),
+    // Whether these are stored for *this* user, so the UI can show the saved
+    // state and lock the fields rather than inviting a re-entry.
+    persisted: source === 'saved',
+    source,
   };
 }
 
-/** Persist a user's credentials so they survive a restart. */
-export function saveStoredCredentials(username, apiKey, apiSecret) {
+/** Persist a user's credentials. Resolves once they are durably saved. */
+export async function saveStoredCredentials(username, apiKey, apiSecret) {
   if (!username) throw new Error('Not signed in');
   const file = readCredentialsFile();
   file.users ||= {};
@@ -80,15 +77,15 @@ export function saveStoredCredentials(username, apiKey, apiSecret) {
     apiSecret: String(apiSecret).trim(),
     savedAt: new Date().toISOString(),
   };
-  writeCredentialsFile(file);
+  await writeCredentialsFile(file);
 }
 
 /** Forget a user's saved credentials. Leaves other users' entries alone. */
-export function clearStoredCredentials(username) {
+export async function clearStoredCredentials(username) {
   const file = readCredentialsFile();
   if (file.users?.[username]) {
     delete file.users[username];
-    writeCredentialsFile(file);
+    await writeCredentialsFile(file);
   }
 }
 
@@ -114,6 +111,7 @@ function getKiteSession(token) {
       apiKey: stored.apiKey,
       apiSecret: stored.apiSecret,
       persisted: stored.persisted,
+      source: stored.source,
       accessToken: null, userId: null, userName: null, connectedAt: null, lastError: null,
     };
   }
@@ -127,7 +125,7 @@ function getKiteSession(token) {
  * disk is a decision the operator should make deliberately, not a side effect
  * of filling in a form.
  */
-export function setCredentials(token, apiKey, apiSecret, persist = false) {
+export async function setCredentials(token, apiKey, apiSecret, persist = false) {
   const session = getSession(token);
   if (!session) throw new Error('Session expired');
   const kite = getKiteSession(token);
@@ -136,20 +134,27 @@ export function setCredentials(token, apiKey, apiSecret, persist = false) {
   kite.accessToken = null;
   kite.lastError = null;
 
+  kite.source = 'session';
+  kite.persisted = false;
   if (persist && kite.apiKey && kite.apiSecret) {
-    saveStoredCredentials(session.username, kite.apiKey, kite.apiSecret);
+    await saveStoredCredentials(session.username, kite.apiKey, kite.apiSecret);
     kite.persisted = true;
+    kite.source = 'saved';
   }
 }
 
 /** Forget saved credentials and drop them from the live session too. */
-export function forgetCredentials(token) {
+export async function forgetCredentials(token) {
   const session = getSession(token);
   if (!session) throw new Error('Session expired');
-  clearStoredCredentials(session.username);
+  await clearStoredCredentials(session.username);
   const kite = getKiteSession(token);
-  kite.apiKey = null;
-  kite.apiSecret = null;
+  // Fall back to whatever remains — environment variables, if set — rather
+  // than to nothing, so "forget" does not hide a configured fallback.
+  const remaining = loadStoredCredentials(session.username);
+  kite.apiKey = remaining.apiKey;
+  kite.apiSecret = remaining.apiSecret;
+  kite.source = remaining.source;
   kite.accessToken = null;
   kite.persisted = false;
   kite.lastError = null;
@@ -164,6 +169,10 @@ export function getStatus(token) {
     // Saved credentials are shown masked and locked, so the UI needs to know
     // they exist without ever receiving the secret back.
     persisted: Boolean(kite.persisted),
+    // 'saved' | 'shared' | 'env' | 'session' | null — with `storage`, enough
+    // for the UI to say plainly whether the keys survive the next deploy.
+    source: kite.source ?? null,
+    storage: storeStatus(),
     apiKeyMasked: kite.apiKey ? kite.apiKey.slice(0, 4) + '••••' : null,
     userId: kite.userId,
     userName: kite.userName,

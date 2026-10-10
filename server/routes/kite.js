@@ -18,15 +18,16 @@ router.get('/status', (req, res) => {
 });
 
 // Save API key + secret. Session-only unless `remember` is set, in which case
-// they are written to data/kite.json (gitignored) under this username.
-router.post('/config', (req, res) => {
+// they go to the persistent store under this username — the database when
+// DATABASE_URL is set, otherwise data/kite.json.
+router.post('/config', async (req, res) => {
   const token = getToken(req);
   const { apiKey, apiSecret, remember } = req.body;
   if (!apiKey || !apiSecret) {
     return res.status(400).json({ error: 'apiKey and apiSecret are required' });
   }
   try {
-    setCredentials(token, apiKey, apiSecret, Boolean(remember));
+    await setCredentials(token, apiKey, apiSecret, Boolean(remember));
     res.json({ success: true, status: getStatus(token), loginUrl: getLoginUrl(token) });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -34,10 +35,10 @@ router.post('/config', (req, res) => {
 });
 
 // Forget saved credentials for this user.
-router.delete('/config', (req, res) => {
+router.delete('/config', async (req, res) => {
   try {
     const token = getToken(req);
-    forgetCredentials(token);
+    await forgetCredentials(token);
     res.json({ success: true, status: getStatus(token) });
   } catch (err) {
     res.status(400).json({ error: err.message });

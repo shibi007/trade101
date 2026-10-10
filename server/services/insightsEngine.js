@@ -17,8 +17,9 @@
  * All output is algorithmic screening for educational purposes only — not
  * investment advice.
  */
-import { getHistoricalCandles, getMargins, getFnoUnderlyings } from './kiteService.js';
+import { getHistoricalCandles, getMargins, getFnoUnderlyings, getTickSize } from './kiteService.js';
 import { getTodaysEvents, getFundamentals } from './nseService.js';
+import { MARKET_CONFIG } from '../../config/marketConfig.js';
 
 // NIFTY-50 style universe, restricted to F&O stocks.
 //
@@ -161,19 +162,19 @@ export function generateIntradaySeries(symbol, refPrice, date = new Date(), step
   return { symbol, prevClose: round2(prevClose), open: round2(open), candles };
 }
 
-function round2(n) { return Math.round(n * 100) / 100; }
+export function round2(n) { return Math.round(n * 100) / 100; }
 
 // ---------- IST time helpers ----------
-function nowIST() {
+export function nowIST() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
 }
-function istAt(base, hours, minutes) {
+export function istAt(base, hours, minutes) {
   const d = new Date(base);
   d.setHours(hours, minutes, 0, 0);
   return d;
 }
 
-function sma(closes, period) {
+export function sma(closes, period) {
   if (closes.length < period) return null;
   const slice = closes.slice(-period);
   return round2(slice.reduce((a, b) => a + b, 0) / period);
@@ -185,7 +186,7 @@ function sma(closes, period) {
  * packages use, so values here match what a trader sees on TradingView).
  * Positions before the seed are null rather than a half-warmed value.
  */
-function emaSeries(values, period) {
+export function emaSeries(values, period) {
   if (values.length < period) return null;
   const out = new Array(values.length).fill(null);
   const k = 2 / (period + 1);
@@ -251,18 +252,18 @@ export function computeMACD(closes, { fast, slow, signal } = MACD_PERIODS) {
 }
 
 // ---------- cross-sectional statistics ----------
-function mean(xs) {
+export function mean(xs) {
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
 }
 
-function median(xs) {
+export function median(xs) {
   if (!xs.length) return 0;
   const sorted = [...xs].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-function stdev(xs) {
+export function stdev(xs) {
   if (xs.length < 2) return 0;
   const m = mean(xs);
   return Math.sqrt(mean(xs.map(x => (x - m) ** 2)));
@@ -273,12 +274,12 @@ function stdev(xs) {
  * the mean). Returns 0 when the universe carries no cross-sectional
  * information — a factor that cannot discriminate must not move the ranking.
  */
-function zscore(value, m, sd) {
+export function zscore(value, m, sd) {
   if (!Number.isFinite(sd) || sd === 0) return 0;
   return (value - m) / sd;
 }
 
-function clamp(x, lo, hi) {
+export function clamp(x, lo, hi) {
   return Math.max(lo, Math.min(hi, x));
 }
 
@@ -316,9 +317,45 @@ async function fetchRealSeries(token, symbol) {
     sma20: sma(dailyCloses, 20),
     sma50: sma(dailyCloses, 50),
     sma200: sma(dailyCloses, 200),
+    // The prior year's extremes. `daily` ends yesterday, so today is excluded
+    // by construction — which is what lets a breakout be detected at all: a
+    // 52-week high that included today's high would rise with the price and
+    // could never be broken.
+    ...prior52Range(daily),
     // Daily MACD is the fallback before the session has enough 5-minute bars
     // for its own; a year of daily closes is plenty to warm it up.
     macdDaily: computeMACD(dailyCloses),
+  };
+}
+
+/**
+ * How many candles ago the current opening-range breakout began, or null when
+ * price is inside the range.
+ *
+ * "Current" matters: a stock that broke out at 9:35, fell back inside, and broke
+ * out again at 10:10 has a fresh breakout at 10:10. The run is counted back from
+ * the latest candle while closes stay beyond the range. 0 means the break is
+ * happening on the latest candle — including a live price beyond the range
+ * before any candle has closed there.
+ */
+export function orbCandlesSinceBreak(candles, orHigh, orLow, orbStatus) {
+  if (orbStatus === 'INSIDE' || candles.length <= 3) return orbStatus === 'INSIDE' ? null : 0;
+  const beyond = c => (orbStatus === 'BREAKOUT_UP' ? c.close > orHigh : c.close < orLow);
+  let i = candles.length - 1;
+  if (!beyond(candles[i])) return 0;
+  while (i - 1 >= 3 && beyond(candles[i - 1])) i--;
+  return candles.length - 1 - i;
+}
+
+/** Highest high and lowest low over the last 252 sessions of completed daily candles. */
+export function prior52Range(daily) {
+  const year = (daily || []).slice(-252).filter(c => c && c.high > 0 && c.low > 0);
+  // A few weeks of history is not a 52-week range; claiming one would turn a
+  // recent listing's short history into a "yearly high" breakout.
+  if (year.length < 200) return { prior52High: null, prior52Low: null };
+  return {
+    prior52High: round2(Math.max(...year.map(c => c.high))),
+    prior52Low: round2(Math.min(...year.map(c => c.low))),
   };
 }
 
@@ -343,6 +380,7 @@ export function computeIndicators(series) {
       gapPct: 0, changePct: 0, rangePosition: 50,
       volume: 0,
       sma20: series.sma20 ?? null, sma50: series.sma50 ?? null, sma200: series.sma200 ?? null,
+      prior52High: series.prior52High ?? null, prior52Low: series.prior52Low ?? null,
       macd: series.macdDaily ?? null, macdTimeframe: series.macdDaily ? '1d' : null,
       real: series.real ?? false,
       noData: true,
@@ -371,6 +409,7 @@ export function computeIndicators(series) {
   let orbStatus = 'INSIDE';
   if (ltp > orHigh) orbStatus = 'BREAKOUT_UP';
   else if (ltp < orLow) orbStatus = 'BREAKOUT_DOWN';
+  const orbBreakAgo = orbCandlesSinceBreak(candles, orHigh, orLow, orbStatus);
 
   // Momentum: % change over last 6 candles (30 min)
   const back = candles[Math.max(0, candles.length - 7)];
@@ -421,7 +460,7 @@ export function computeIndicators(series) {
   return {
     ltp, prevClose, open, dayHigh: round2(dayHigh), dayLow: round2(dayLow),
     vwap, aboveVwap: ltp > vwap,
-    orHigh: round2(orHigh), orLow: round2(orLow), orbStatus,
+    orHigh: round2(orHigh), orLow: round2(orLow), orbStatus, orbBreakAgo,
     momentum30m, relVolume, atr,
     // ATR as a share of price, so volatility is comparable across a ₹160 and a
     // ₹12,000 stock. Raw ATR is not: it scales with price, not with tradeability.
@@ -434,6 +473,8 @@ export function computeIndicators(series) {
     sma20: series.sma20 ?? null,
     sma50: series.sma50 ?? null,
     sma200: series.sma200 ?? null,
+    prior52High: series.prior52High ?? null,
+    prior52Low: series.prior52Low ?? null,
     ...pickMACD(candles, series),
   };
 }
@@ -546,6 +587,18 @@ export function volatilityFit(atrPct, band) {
  */
 export const EDGE_BOUND = 0.49;
 
+/** An opening-range break this many 5-minute candles old or newer counts as fresh. */
+export const ORB_FRESH_CANDLES = 3;
+
+/**
+ * Estimated intraday (MIS) round-trip cost as a fraction of position value:
+ * brokerage at ₹20 an order, STT of 0.025% on the sell side, exchange and SEBI
+ * charges, GST and stamp duty, plus a little slippage. An estimate, deliberately
+ * not optimistic. Against a stop of ~0.5% of price it is a quarter of the risk
+ * on every trade — the reason a stop cannot usefully be made arbitrarily tight.
+ */
+export const INTRADAY_ROUND_TRIP_COST = 0.0012;
+
 export function scoreStock(ind, context = null) {
   let long = 0, short = 0;
   const reasons = [];
@@ -564,8 +617,21 @@ export function scoreStock(ind, context = null) {
   // back to the raw day change, which is the same thing when the market is flat.
   const relStrength = context ? round2(ind.changePct - context.marketChangePct) : ind.changePct;
 
-  if (ind.orbStatus === 'BREAKOUT_UP') { long += 25; note('Broke above 15-min opening range', 25, 'LONG'); }
-  if (ind.orbStatus === 'BREAKOUT_DOWN') { short += 25; note('Broke below 15-min opening range', 25, 'SHORT'); }
+  // Opening-range breakout, weighted by freshness. By afternoon nearly every
+  // stock has left its first fifteen minutes' range (94% of simulated sessions),
+  // so a flat +25 for "outside the range" stopped meaning anything. A break in
+  // the last few candles is an entry; an old one is a move already made.
+  if (ind.orbStatus !== 'INSIDE') {
+    const up = ind.orbStatus === 'BREAKOUT_UP';
+    const ago = ind.orbBreakAgo;
+    const fresh = ago == null || ago <= ORB_FRESH_CANDLES;
+    const pts = fresh ? 25 : 10;
+    const label = fresh
+      ? `Broke ${up ? 'above' : 'below'} 15-min opening range${ago ? ` ${ago * 5} min ago` : ' just now'}`
+      : `Broke ${up ? 'above' : 'below'} opening range ${ago * 5} min ago — late, much of the move is made`;
+    if (up) long += pts; else short += pts;
+    note(label, pts, up ? 'LONG' : 'SHORT');
+  }
 
   if (ind.aboveVwap && relStrength > 0) { long += 20; note(`Above VWAP and outperforming the market (+${relStrength}% relative)`, 20, 'LONG'); }
   if (!ind.aboveVwap && relStrength < 0) { short += 20; note(`Below VWAP and underperforming the market (${relStrength}% relative)`, 20, 'SHORT'); }
@@ -604,6 +670,26 @@ export function scoreStock(ind, context = null) {
       long += 6; note(`Reclaimed MA20 (${ind.sma20}) but MA20 still under MA50 (${ind.sma50}) — early turn, unconfirmed`, 6, 'LONG');
     } else if (below20) {
       short += 6; note(`Lost MA20 (${ind.sma20}) though MA20 still over MA50 (${ind.sma50}) — pullback, unconfirmed`, 6, 'SHORT');
+    }
+  }
+
+  // ---- 52-week breakout (needs Kite daily history) ----
+  //
+  // Price through the prior year's high or low, measured against `ind.ltp` so a
+  // live quote counts. The yearly high is a level the whole market can see:
+  // above it, everyone who bought in the last twelve months is in profit and
+  // there is no overhead supply waiting to sell into the move.
+  //
+  // Worth 10, not more. A stock clearing its 52-week high intraday is nearly
+  // always above its opening range and near its day high as well, so a larger
+  // weight would mostly re-count "the price went up". It earns a place because
+  // a yearly high is a different and well-documented level (George & Hwang,
+  // 2004) from a fifteen-minute range.
+  if (ind.ltp != null) {
+    if (ind.prior52High != null && ind.ltp > ind.prior52High) {
+      long += 10; note(`Broke above the 52-week high (₹${ind.prior52High})`, 10, 'LONG');
+    } else if (ind.prior52Low != null && ind.ltp < ind.prior52Low) {
+      short += 10; note(`Broke below the 52-week low (₹${ind.prior52Low})`, 10, 'SHORT');
     }
   }
 
@@ -740,6 +826,60 @@ export function scoreStock(ind, context = null) {
   };
 }
 
+/**
+ * Stop, targets and costs for an intraday trade. Pure, so the backtester uses
+ * the same plan the board shows.
+ *
+ * TIGHT (the default) puts the stop just beyond the nearest level that proves
+ * the setup wrong — back inside the opening range for a breakout, back across
+ * VWAP — instead of a fixed distance. It is never wider than STANDARD's 1.5 ATR,
+ * and never tighter than 1 ATR: inside that, an ordinary five-minute wiggle
+ * takes the stop out, so a tighter stop only loses more often. With no
+ * structural level on the right side of the entry, it falls back to 1.5 ATR.
+ *
+ * A tight stop does not by itself keep losses small — position size does. What
+ * the stop distance sets is how many shares a fixed rupee risk buys.
+ */
+export function intradayPlan(ind, direction, entry, { stopMode = 'TIGHT' } = {}) {
+  if (!(ind.atr > 0) || !(entry > 0)) return null;
+  const long = direction === 'LONG';
+  const atr = ind.atr;
+  let risk = 1.5 * atr;
+  let stopBasis = '1.5 ATR';
+
+  if (stopMode === 'TIGHT') {
+    // Levels whose loss would invalidate the setup, on the stop side of entry.
+    const levels = [];
+    if (ind.orbStatus === (long ? 'BREAKOUT_UP' : 'BREAKOUT_DOWN')) {
+      levels.push({ price: long ? ind.orHigh : ind.orLow, name: 'opening range' });
+    }
+    if (ind.vwap != null) levels.push({ price: ind.vwap, name: 'VWAP' });
+    const valid = levels.filter(l => l.price != null && (long ? l.price < entry : l.price > entry));
+    if (valid.length) {
+      // The nearest one: the first sign the trade is wrong is the cheapest exit.
+      const nearest = valid.reduce((a, b) => (long ? (b.price > a.price ? b : a) : (b.price < a.price ? b : a)));
+      const raw = long ? entry - (nearest.price - 0.25 * atr) : (nearest.price + 0.25 * atr) - entry;
+      risk = clamp(raw, atr, 1.5 * atr);
+      stopBasis = raw < atr ? `beyond ${nearest.name}, widened to 1 ATR`
+        : raw > 1.5 * atr ? `capped at 1.5 ATR` : `just beyond ${nearest.name}`;
+    }
+  }
+
+  const stopLoss = long ? entry - risk : entry + risk;
+  const target1 = long ? entry + risk : entry - risk;
+  const target2 = long ? entry + 2 * risk : entry - 2 * risk;
+  return {
+    stopLoss: round2(stopLoss),
+    target1: round2(target1),
+    target2: round2(target2),
+    riskPerShare: round2(risk),
+    riskPct: round2((risk / entry) * 100),
+    stopBasis,
+    // What costs alone take from every trade, in units of the risk.
+    costR: round2((INTRADAY_ROUND_TRIP_COST * entry) / risk),
+  };
+}
+
 export function buildPick(stock, ind, scored) {
   const { direction } = scored;
   const entry = ind.ltp;
@@ -758,6 +898,7 @@ export function buildPick(stock, ind, scored) {
       name: stock.name,
       sector: stock.sector,
       lotSize: stock.lotSize ?? null,
+      tickSize: getTickSize(stock.symbol),
       direction,
       score: scored.score,
       rankScore: scored.rankScore,
@@ -784,14 +925,10 @@ export function buildPick(stock, ind, scored) {
     };
   }
 
-  const slDistance = round2(ind.atr * 1.5);
-  const stopLoss = isLong ? round2(entry - slDistance) : round2(entry + slDistance);
-
-  // Two targets so the plan supports scaling out: T1 at 1R (booking half here
-  // makes the remainder risk-free), T2 at 2R. `target` is kept as an alias for
-  // T2 so existing callers don't break.
-  const target1 = isLong ? round2(entry + slDistance) : round2(entry - slDistance);
-  const target2 = isLong ? round2(entry + slDistance * 2) : round2(entry - slDistance * 2);
+  const plan = intradayPlan(ind, direction, entry);
+  const slDistance = plan.riskPerShare;
+  const { stopLoss, target1, target2 } = plan;
+  // `target` is kept as an alias for T2 so existing callers don't break.
   const target = target2;
 
   // Is T2 actually reachable, or is a known level sitting in the way? A 2R
@@ -807,6 +944,9 @@ export function buildPick(stock, ind, scored) {
     sector: stock.sector,
     // F&O contract lot from Kite's NFO master; null offline rather than a guess.
     lotSize: stock.lotSize ?? null,
+    // Exchange tick from Kite's instrument master: order prices must be a whole
+    // number of ticks or Kite rejects them. Null offline; the UI then says so.
+    tickSize: getTickSize(stock.symbol),
     direction,
     score: scored.score,
     rankScore: scored.rankScore,
@@ -826,6 +966,9 @@ export function buildPick(stock, ind, scored) {
       target2,
       target2Blocked,
       riskPerShare: slDistance,
+      riskPct: plan.riskPct,
+      stopBasis: plan.stopBasis,
+      costR: plan.costR,
       riskRewardRatio: 2.0,
       vwap: ind.vwap,
       pivot: ind.pivot,
@@ -844,6 +987,8 @@ export function buildPick(stock, ind, scored) {
       sma50: ind.sma50,
       sma200: ind.sma200,
       maDistancePct: maDistancePct(ind),
+      prior52High: ind.prior52High ?? null,
+      prior52Low: ind.prior52Low ?? null,
       macd: ind.macd ?? null,
       macdTimeframe: ind.macdTimeframe ?? null,
       // Live-only (null on simulated series)
@@ -887,6 +1032,41 @@ export function normalisePinned(pinned) {
     if (known.has(sym) && !out.includes(sym)) out.push(sym);
   }
   return out.slice(0, UNIVERSE.length);
+}
+
+export const DEFAULT_ENTRY_CUTOFF = '10:30';
+const ENTRY_OPENS = '09:30';     // the 15-minute opening range is complete
+const LATEST_CUTOFF = '14:45';   // well clear of the 15:20 MIS auto square-off
+
+const toMinutes = hhmm => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '').trim());
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+const fromMinutes = mins => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+
+/**
+ * When new intraday trades may be taken. Opens once the opening range has
+ * formed and closes at the trader's cutoff — 10:30 by default, for someone who
+ * sets trades up in the morning and leaves them. Anything unparseable falls
+ * back to the default; anything later than 14:45 is clamped, because a trade
+ * entered after that has too little session left before the forced exit.
+ */
+export function entryWindow(cutoff, now = nowIST()) {
+  const open = toMinutes(ENTRY_OPENS);
+  let close = toMinutes(cutoff);
+  if (close == null || close <= open) close = toMinutes(DEFAULT_ENTRY_CUTOFF);
+  close = Math.min(close, toMinutes(LATEST_CUTOFF));
+  const mins = now.getHours() * 60 + now.getMinutes();
+  // A weekday clock is not a trading session: on a weekend or a configured
+  // holiday there is no window at all, whatever the time says. The date is read
+  // from the IST wall-clock fields, not toISOString(), which would shift it.
+  const ymd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const tradingDay = MARKET_CONFIG.TRADING_DAYS.includes(now.getDay()) && !MARKET_CONFIG.MARKET_HOLIDAYS.includes(ymd);
+  return {
+    opensAt: ENTRY_OPENS,
+    cutoff: fromMinutes(close),
+    state: !tradingDay ? 'MARKET_CLOSED' : mins < open ? 'BEFORE' : mins >= close ? 'CLOSED' : 'OPEN',
+  };
 }
 
 export async function generateInsights(token, liveQuotes = null, options = {}) {
@@ -1035,6 +1215,7 @@ export async function generateInsights(token, liveQuotes = null, options = {}) {
     real: s.ind.real, eventToday: s.ind.eventToday,
     sma20: s.ind.sma20, sma50: s.ind.sma50, sma200: s.ind.sma200,
     maDistancePct: maDistancePct(s.ind),
+    prior52High: s.ind.prior52High ?? null, prior52Low: s.ind.prior52Low ?? null,
     macdHistogram: s.ind.macd?.histogram ?? null, macdTimeframe: s.ind.macdTimeframe ?? null,
   }));
 
@@ -1052,6 +1233,9 @@ export async function generateInsights(token, liveQuotes = null, options = {}) {
     realDataCoverage: `${realCount}/${bySymbol.length}`,
     disclaimer: 'Algorithmic screening for educational purposes only. Not investment advice. Consult a SEBI-registered advisor before trading.',
     breadth: { advances, declines, unchanged: snapshots.length - advances - declines, avgChangePct: avgChange, sentiment },
+    // Whether new trades may be taken now. Picks are still returned after the
+    // cutoff — they explain the session — but the UI marks them not to act on.
+    entryWindow: entryWindow(options.entryCutoff),
     // Which stocks were eligible and on whose authority. `source` is KITE_NFO
     // when membership came from the exchange's instrument list, STATIC when it
     // fell back to the hand-maintained flags.

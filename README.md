@@ -235,6 +235,39 @@ past signal (no look-ahead).
 fiction. The universe is today's F&O list, so stocks that dropped out are missing (survivorship bias, which
 flatters longs).
 
+## 💾 Keeping data across deploys
+
+Logins, password changes, 2FA and saved Kite keys are kept by `server/services/store.js`. Where they live
+depends on the host:
+
+- **A host with a persistent disk** (your own machine, a VPS, a paid Render instance with a disk): they're saved
+  in `data/*.json` and nothing needs setting up.
+- **Render's free plan** has no persistent disk. It **erases the disk on every deploy, every restart, and every
+  wake from sleep**, so anything saved there is lost. The app warns about this at startup and in the Kite
+  Connect form.
+
+**Option 1 — a free database (keeps everything).** [Neon](https://neon.tech) has a free Postgres tier that does
+not expire. Render's own free Postgres is deleted after 30 days, so don't use that one.
+
+1. Sign up at neon.tech → create a project → copy the **connection string** (it starts `postgresql://` and ends
+   `?sslmode=require`).
+2. In Render → your service → **Environment**, add `DATABASE_URL` = that string.
+3. Add `DATA_ENCRYPTION_KEY` = any long random string, unless your service was created from `render.yaml`, which
+   generates one. **Keep it**: stored data cannot be read without it.
+4. Save. Render redeploys. The log shows `💾 Storage: postgres (encrypted)`.
+
+On every boot the app loads the stored data and runs pending migrations **before** it serves requests. The
+first time a database is used, it copies in any existing `data/*.json`. If the database can't be reached (it is
+retried for a few seconds, since free tiers sleep), or the encryption key is wrong, the boot **fails rather than
+starting empty**, because the first save would otherwise overwrite everything stored.
+
+**Option 2 — environment variables (Kite keys only).** Put the key and secret in `KITE_API_KEY` and
+`KITE_API_SECRET` in Render → Environment. They survive every deploy, but logins added or changed in the app,
+and 2FA, still won't.
+
+The admin scripts (`scripts/create-user.js`, `manage-2fa.js`, `manage-admin.js`) read `.env` and use the same
+storage, so with `DATABASE_URL` set they change the database, not a local file.
+
 ## 📁 Project Structure
 
 ```

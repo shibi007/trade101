@@ -1,15 +1,10 @@
 import express from 'express';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import {
-  createUser, setAdmin, isAdmin, getTotpSecret, enable2fa, disable2fa, verifyTotp,
-  parseCookies, getSession, SESSION_COOKIE,
+  createUser, isAdmin, getTotpSecret, enable2fa, disable2fa, verifyTotp, verifyUser,
+  loadUsers, deleteUser, parseCookies, getSession, SESSION_COOKIE,
 } from '../services/authService.js';
 
 const router = express.Router();
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const USERS_FILE = path.join(__dirname, '..', '..', 'data', 'users.json');
 
 function getUsername(req) {
   const session = getSession(parseCookies(req)[SESSION_COOKIE]);
@@ -25,13 +20,13 @@ function requireAdmin(req, res, next) {
 }
 
 // Create new user (admin only)
-router.post('/users', requireAdmin, (req, res) => {
+router.post('/users', requireAdmin, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password required' });
   }
   try {
-    const result = createUser(username, password, false);
+    const result = await createUser(username, password, false);
     res.json({ success: true, user: result });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -41,8 +36,7 @@ router.post('/users', requireAdmin, (req, res) => {
 // List all users (admin only)
 router.get('/users', requireAdmin, (req, res) => {
   try {
-    const users = fs.readFileSync(USERS_FILE, 'utf8');
-    const userList = JSON.parse(users).map(u => ({
+    const userList = loadUsers().map(u => ({
       username: u.username,
       createdAt: u.createdAt,
       isAdmin: u.isAdmin,
@@ -55,15 +49,14 @@ router.get('/users', requireAdmin, (req, res) => {
 });
 
 // Delete user (admin only)
-router.post('/users/:username/delete', requireAdmin, (req, res) => {
+router.post('/users/:username/delete', requireAdmin, async (req, res) => {
   const { username } = req.params;
   const admin = getUsername(req);
   if (username === admin) {
     return res.status(400).json({ error: 'Cannot delete your own admin account' });
   }
   try {
-    const users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')).filter(u => u.username !== username);
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    if (!(await deleteUser(username))) return res.status(404).json({ error: `User not found: ${username}` });
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -71,10 +64,10 @@ router.post('/users/:username/delete', requireAdmin, (req, res) => {
 });
 
 // Enable 2FA for current user (returns QR code URL)
-router.post('/2fa/enable', (req, res) => {
+router.post('/2fa/enable', async (req, res) => {
   const username = getUsername(req);
   try {
-    const result = enable2fa(username);
+    const result = await enable2fa(username);
     res.json({
       success: true,
       secret: result.secret,
@@ -108,15 +101,19 @@ router.post('/2fa/verify', (req, res) => {
 });
 
 // Disable 2FA for current user
-router.post('/2fa/disable', (req, res) => {
+router.post('/2fa/disable', async (req, res) => {
   const username = getUsername(req);
   const { currentPassword } = req.body;
   if (!currentPassword) {
     return res.status(400).json({ error: 'Current password required' });
   }
   try {
-    // Password verification is done by the client before calling this
-    disable2fa(username);
+    // Verified here, not trusted from the client: a stolen session cookie must
+    // not be enough to strip a second factor off the account.
+    if (!username || !verifyUser(username, currentPassword)) {
+      return res.status(403).json({ error: 'Current password is incorrect' });
+    }
+    await disable2fa(username);
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: err.message });

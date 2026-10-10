@@ -65,7 +65,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Current and new password are required' });
   }
   try {
-    changePassword(req.user.username, currentPassword, newPassword);
+    await changePassword(req.user.username, currentPassword, newPassword);
   } catch (err) {
     await sleep(FAIL_DELAY_MS);
     return res.status(400).json({ error: err.message });

@@ -1,18 +1,17 @@
 /**
  * Authentication service — username/password with scrypt hashing and
- * in-memory sessions. No external dependencies.
+ * in-memory sessions.
  *
- * Users are stored in data/users.json (gitignored). Passwords are never
+ * Users live in the persistent store (see store.js): data/users.json locally,
+ * or the database when DATABASE_URL is set, so logins, password changes and
+ * 2FA survive deploys on hosts that wipe their disk. Passwords are never
  * stored — only scrypt hashes with per-user random salts.
+ *
+ * Functions that change users are async: they resolve once the change is
+ * durably saved, and reject if it could not be.
  */
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, '..', '..', 'data');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
+import { readDoc, writeDoc } from './store.js';
 
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 export const SESSION_COOKIE = 't101_session';
@@ -21,17 +20,13 @@ export const SESSION_COOKIE = 't101_session';
 const sessions = new Map();
 
 // ---------- user storage ----------
-function loadUsers() {
-  try {
-    return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-  } catch {
-    return [];
-  }
+export function loadUsers() {
+  const users = readDoc('users');
+  return Array.isArray(users) ? users : [];
 }
 
 function saveUsers(users) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  return writeDoc('users', users);
 }
 
 function isAdmin(username) {
@@ -44,7 +39,7 @@ function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString('hex');
 }
 
-export function createUser(username, password, isAdmin = false) {
+export async function createUser(username, password, isAdmin = false) {
   if (!/^[a-zA-Z0-9_.-]{3,32}$/.test(username)) {
     throw new Error('Username must be 3-32 chars: letters, digits, _ . -');
   }
@@ -63,16 +58,16 @@ export function createUser(username, password, isAdmin = false) {
   };
   if (existing >= 0) users[existing] = record; // reset password
   else users.push(record);
-  saveUsers(users);
+  await saveUsers(users);
   return { username, created: existing < 0, isAdmin };
 }
 
-export function setAdmin(username, isAdmin) {
+export async function setAdmin(username, isAdmin) {
   const users = loadUsers();
   const user = users.find(u => u.username.toLowerCase() === String(username).toLowerCase());
   if (!user) throw new Error(`User not found: ${username}`);
   user.isAdmin = Boolean(isAdmin);
-  saveUsers(users);
+  await saveUsers(users);
 }
 
 export function verifyUser(username, password) {
@@ -140,31 +135,40 @@ export function getTotpSecret(username) {
 
 export { isAdmin };
 
-export function enable2fa(username) {
+export async function enable2fa(username) {
   const users = loadUsers();
   const user = users.find(u => u.username.toLowerCase() === String(username).toLowerCase());
   if (!user) throw new Error(`User not found: ${username}`);
   user.totpSecret = base32Encode(crypto.randomBytes(20));
-  saveUsers(users);
+  await saveUsers(users);
   return {
     secret: user.totpSecret,
     otpauthUrl: `otpauth://totp/Trade101:${encodeURIComponent(user.username)}?secret=${user.totpSecret}&issuer=Trade101&digits=6&period=30`,
   };
 }
 
-export function disable2fa(username) {
+export async function disable2fa(username) {
   const users = loadUsers();
   const user = users.find(u => u.username.toLowerCase() === String(username).toLowerCase());
   if (!user) throw new Error(`User not found: ${username}`);
   delete user.totpSecret;
-  saveUsers(users);
+  await saveUsers(users);
+}
+
+/** Remove a user. Resolves to whether one was removed. */
+export async function deleteUser(username) {
+  const users = loadUsers();
+  const kept = users.filter(u => u.username.toLowerCase() !== String(username).toLowerCase());
+  if (kept.length === users.length) return false;
+  await saveUsers(kept);
+  return true;
 }
 
 export function hasUsers() {
   return loadUsers().length > 0;
 }
 
-export function changePassword(username, currentPassword, newPassword) {
+export async function changePassword(username, currentPassword, newPassword) {
   if (!verifyUser(username, currentPassword)) {
     throw new Error('Current password is incorrect');
   }
@@ -176,7 +180,7 @@ export function changePassword(username, currentPassword, newPassword) {
   user.salt = crypto.randomBytes(16).toString('hex');
   user.hash = hashPassword(newPassword, user.salt);
   user.passwordChangedAt = new Date().toISOString();
-  saveUsers(users);
+  await saveUsers(users);
 }
 
 // ---------- sessions ----------

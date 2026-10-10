@@ -46,11 +46,29 @@ import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
 import { requireAuth, getSession, parseCookies, SESSION_COOKIE, hasUsers, createUser } from './services/authService.js';
 import { attachTickerHub } from './services/tickerHub.js';
+import { initStore, closeStore } from './services/store.js';
 
-// Bootstrap the first user from env vars — needed on hosts with ephemeral
-// filesystems (e.g. Render) where data/users.json doesn't survive deploys.
+// Restore persistent state and run migrations before anything is served. On a
+// host that wipes its disk, this is what brings users and saved Kite keys back
+// after every deploy and every restart. If stored data cannot be loaded the
+// boot fails rather than starting empty: the first save would then overwrite
+// everything that was stored.
+try {
+  const storage = await initStore();
+  console.log(`💾 Storage: ${storage.backend}${storage.encrypted ? ' (encrypted)' : ''}${storage.durable ? '' : ' — NOT durable on this host'}`);
+  for (const m of storage.migrations) console.log(`🔁 Migration ${m.id}: ${m.touched.join(', ') || 'no changes'}`);
+  if (!storage.durable) {
+    console.warn('⚠ This host erases its disk on every deploy and restart (Render free plan), so saved logins, 2FA and Kite keys will not survive. Set DATABASE_URL to keep them — see README, "Keeping data across deploys".');
+  }
+} catch (err) {
+  console.error(`✖ Could not load stored data: ${err.message}`);
+  process.exit(1);
+}
+
+// Bootstrap the first user from env vars. With a database this runs once, on
+// the very first boot; on a wiped disk it runs on every boot.
 if (!hasUsers() && process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
-  createUser(process.env.ADMIN_USERNAME, process.env.ADMIN_PASSWORD, true); // first user is admin
+  await createUser(process.env.ADMIN_USERNAME, process.env.ADMIN_PASSWORD, true); // first user is admin
   console.log(`👤 Bootstrapped admin user "${process.env.ADMIN_USERNAME}" from environment`);
 }
 
@@ -101,6 +119,13 @@ server.listen(PORT, () => {
   console.log(`🚀 Trade101 Server running on http://localhost:${PORT}`);
   console.log(`📊 Market Configuration: India NSE/BSE Intraday Trading`);
   console.log(`⏰ Market Hours: 9:15 AM - 3:30 PM IST`);
+});
+
+// Render sends SIGTERM before replacing an instance on deploy. Every write is
+// already committed when it returns, so this only releases connections.
+process.on('SIGTERM', () => {
+  server.close(() => closeStore().finally(() => process.exit(0)));
+  setTimeout(() => process.exit(0), 10_000).unref();
 });
 
 export { app, wss };

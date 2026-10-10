@@ -282,7 +282,8 @@
 </head>
 <body>
 <header>
-  <h1>Trade<span>101</span> <span class="muted" style="font-size:12px;font-weight:400">Intraday Insights · NSE India</span></h1>
+  <h1>Trade<span>101</span> <span class="muted" style="font-size:12px;font-weight:400">Intraday Insights · NSE India</span>
+    <span id="app-version" class="muted" style="font-size:11px;font-weight:400;margin-left:6px;font-family:ui-monospace,monospace" tabindex="0"></span></h1>
   <span class="chip" id="market-chip"><span class="dot" style="background:var(--muted)"></span>Checking market…</span>
   <span class="chip" id="kite-chip"><span class="dot" style="background:var(--muted)"></span>Kite: not connected</span>
   <div class="spacer"></div>
@@ -938,6 +939,24 @@ function tick() {
   $('#ist-clock').textContent = new Date().toLocaleTimeString('en-IN', {timeZone:'Asia/Kolkata', hour12:true}) + ' IST';
 }
 setInterval(tick, 1000); tick();
+
+// The running build, so a deploy can be confirmed at a glance: the version is
+// the commit's time in IST (or the build's, when git history was not available).
+async function loadVersion() {
+  try {
+    const v = (await (await api('/api/health')).json()).version;
+    if (!v?.version) return;
+    const ist = iso => iso ? new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' IST' : null;
+    const el = $('#app-version');
+    el.textContent = `v${v.version}`;
+    el.title = [
+      v.basis === 'commit' ? `Code committed ${ist(v.commitAt)}` : `Built ${ist(v.builtAt)} (commit time unavailable)`,
+      v.commit ? `commit ${v.commit}` : null,
+      v.builtAt ? `deployed ${ist(v.builtAt)}` : null,
+      v.startedAt ? `server started ${ist(v.startedAt)}` : null,
+    ].filter(Boolean).join(' · ');
+  } catch { /* the header simply shows no version */ }
+}
 
 async function loadMarketStatus() {
   try {
@@ -1868,28 +1887,59 @@ $('#redirect-url').textContent = location.origin + '/api/kite/callback';
 let kiteEditing = false;
 let kiteStatus = null;
 
+// Where configured keys came from, as the form describes them. Keys from the
+// server's environment are as much "set" as saved ones — showing them as
+// empty, editable fields made it look as if the Render variables were ignored.
+const KITE_SOURCE_TEXT = {
+  saved: 'saved',
+  env: 'from the server environment (KITE_API_KEY / KITE_API_SECRET)',
+  shared: 'from the shared server file',
+  session: 'set for this login only',
+};
+
 function renderKiteForm() {
   const st = kiteStatus || {};
-  const locked = st.persisted && !kiteEditing;
+  // Configured from a lasting source: show it set and locked, not as blanks.
+  const fromLasting = st.configured && ['saved', 'env', 'shared'].includes(st.source);
+  const locked = fromLasting && !kiteEditing;
 
   $('#kite-key').disabled = locked;
   $('#kite-secret').disabled = locked;
   $('#kite-remember-row').style.display = locked ? 'none' : 'flex';
 
   if (locked) {
-    $('#kite-key').value = st.apiKeyMasked || '';
+    const where = st.source === 'saved' ? 'saved' : st.source === 'env' ? 'from server environment' : 'from server file';
+    $('#kite-key').value = `${st.apiKeyMasked || ''}  (${where})`;
     $('#kite-secret').value = '';
-    $('#kite-secret').placeholder = '•••••••• saved';
+    $('#kite-secret').placeholder = `•••••••• ${where}`;
   } else if (!kiteEditing) {
+    $('#kite-key').value = '';
+    $('#kite-key').placeholder = 'Your Kite Connect API key';
     $('#kite-secret').placeholder = 'Your Kite Connect API secret';
   }
 
   $('#kite-save').style.display = locked ? 'none' : 'inline-block';
   $('#kite-edit').style.display = locked ? 'inline-block' : 'none';
+  // Environment keys are changed in the host's settings; "Edit" here saves a
+  // different pair for this user, which then takes precedence.
+  $('#kite-edit').textContent = st.source === 'saved' ? 'Edit credentials' : 'Use different keys';
   $('#kite-cancel-edit').style.display = kiteEditing ? 'inline-block' : 'none';
+  // Only keys saved in the app can be forgotten from the app.
   $('#kite-forget').style.display = st.persisted ? 'inline-block' : 'none';
 
-  $('#kite-storage-note').innerHTML = kiteStorageNote(st);
+  $('#kite-storage-note').innerHTML = kiteStorageNote(st) + storageLine(st.storage);
+}
+
+/** Where this server keeps logins and saved keys — always shown, so a database
+ *  configured on the host is visibly in use (or visibly not). */
+function storageLine(s) {
+  if (!s) return '';
+  const text = s.backend === 'postgres'
+    ? `Database${s.encrypted ? ' (encrypted)' : ' — not encrypted: set DATA_ENCRYPTION_KEY'}. Logins, 2FA and saved keys survive deploys and restarts.`
+    : s.durable
+      ? 'This server\'s disk (<code>data/</code>). It persists here.'
+      : '<span class="neg">This server\'s disk, which the host erases on every deploy and restart</span> — set <code>DATABASE_URL</code> to keep logins, 2FA and saved keys.';
+  return `<br><span style="display:inline-block;margin-top:6px"><b>Storage:</b> ${text}</span>`;
 }
 
 /**
@@ -1931,7 +1981,7 @@ async function loadKiteStatus() {
   } else {
     chip.innerHTML = `<span class="dot" style="background:var(--${st.configured ? 'amber' : 'muted'})"></span>Kite: ${st.configured ? 'configured, not logged in' : 'not connected'}`;
     $('#kite-status-text').innerHTML = st.configured
-      ? `Key <b>${st.apiKeyMasked}</b> ${st.persisted ? 'saved on this server' : 'set for this session'}. Click "Login with Kite" to start a session.` + (st.lastError ? ` Last error: ${st.lastError}` : '')
+      ? `Key <b>${st.apiKeyMasked}</b> ${KITE_SOURCE_TEXT[st.source] || 'set'}. Click "Login with Kite" to start a session.` + (st.lastError ? ` Last error: ${st.lastError}` : '')
       : 'Not configured. Add your Kite Connect app credentials to stream live NSE data into the insights engine.';
     $('#kite-disconnect').style.display = 'none';
     $('#kite-login').disabled = !st.configured;
@@ -2423,6 +2473,10 @@ renderAlertToggle();
 renderLeverageControl();
 renderTradeSettings();
 renderGuide();   // static content — no need to wait for auth or a data load
+// Here, with the other start-up calls: `api` is a const declared further up
+// the script than loadVersion's definition but below where it first sat, and
+// calling it there threw (temporal dead zone), silently, inside the try.
+loadVersion();
 loadUser().then(ok => { if (ok) { loadMarketStatus(); loadKiteStatus(); loadInsights(); connectTicks(); } });
 setInterval(loadInsights, 60_000);       // refresh picks every minute
 setInterval(loadMarketStatus, 60_000);

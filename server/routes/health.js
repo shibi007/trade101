@@ -1,5 +1,6 @@
 import express from 'express';
 import { isMarketOpen, MARKET_CONFIG } from '../../config/marketConfig.js';
+import { getVersion } from '../services/version.js';
 
 const router = express.Router();
 
@@ -11,6 +12,8 @@ router.get('/', (req, res) => {
   res.json({
     status: 'ok',
     service: 'Trade101 API',
+    // Which build is live, so a deploy can be confirmed from the browser.
+    version: getVersion(),
     timestamp: new Date().toISOString(),
     istTime: istTime,
     market: {

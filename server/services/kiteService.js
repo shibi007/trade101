@@ -42,28 +42,46 @@ function writeCredentialsFile(data) {
  *
  * Read fresh each time so editing the file doesn't require a restart.
  */
-function loadStoredCredentials(username = null) {
+/**
+ * The places a key and secret can come from, most specific first. Values are
+ * trimmed wherever they come from: a stray space or newline pasted into a host's
+ * environment settings changes the checksum, and Kite then rejects the login.
+ */
+function credentialSources(username) {
   const file = readCredentialsFile();
   const mine = username ? file.users?.[username] : null;
+  const clean = v => (typeof v === 'string' ? v.trim() : '') || null;
+  return [
+    { source: 'saved', apiKey: clean(mine?.apiKey), apiSecret: clean(mine?.apiSecret) },
+    { source: 'shared', apiKey: clean(file.apiKey), apiSecret: clean(file.apiSecret) },
+    { source: 'env', apiKey: clean(process.env.KITE_API_KEY), apiSecret: clean(process.env.KITE_API_SECRET) },
+  ];
+}
 
-  const apiKey = mine?.apiKey?.trim() || file.apiKey?.trim() || process.env.KITE_API_KEY || null;
-  const apiSecret = mine?.apiSecret?.trim() || file.apiSecret?.trim() || process.env.KITE_API_SECRET || null;
-
-  // Where the pair came from, so the UI can say whether it survives a deploy:
-  // 'saved' by this user, the legacy shared pair in the file, the host's
-  // environment variables, or nothing.
-  const source = mine?.apiKey && mine?.apiSecret ? 'saved'
-    : file.apiKey && file.apiSecret ? 'shared'
-      : process.env.KITE_API_KEY && process.env.KITE_API_SECRET ? 'env'
-        : null;
-
+/**
+ * Credentials for a user: the first source that has *both* a key and a secret.
+ *
+ * Per-user rather than global because the legacy top-level pair in the file is
+ * shared by every account on this server — fine for a single operator, a
+ * credential leak between accounts as soon as there are two. Saving through
+ * the UI always writes to the per-user slot.
+ *
+ * A key and secret are only ever used together from the same source. Taking
+ * each from the first source that had one — as this used to — could pair a
+ * saved key with a secret from the environment, and Kite answers that login
+ * with "Invalid `checksum`".
+ */
+function loadStoredCredentials(username = null) {
+  const pair = credentialSources(username).find(c => c.apiKey && c.apiSecret);
   return {
-    apiKey: apiKey || null,
-    apiSecret: apiSecret || null,
+    apiKey: pair?.apiKey ?? null,
+    apiSecret: pair?.apiSecret ?? null,
     // Whether these are stored for *this* user, so the UI can show the saved
     // state and lock the fields rather than inviting a re-entry.
-    persisted: source === 'saved',
-    source,
+    persisted: pair?.source === 'saved',
+    // 'saved' | 'shared' | 'env' | null — so the UI can say whether the keys
+    // survive a deploy, and a failed login can say which pair it used.
+    source: pair?.source ?? null,
   };
 }
 
@@ -125,12 +143,29 @@ function getKiteSession(token) {
  * disk is a decision the operator should make deliberately, not a side effect
  * of filling in a form.
  */
+/**
+ * Kite keys and secrets are plain alphanumeric strings. Whitespace or quotes
+ * inside one means a copy-paste picked up more than the value, and the login
+ * would then fail later with an opaque "Invalid checksum" — so refuse it here,
+ * where the message can say what is wrong.
+ */
+function checkCredentialShape(label, value) {
+  if (/[\s"'`]/.test(value)) {
+    throw new Error(`The ${label} contains a space, line break or quote — copy it again from developers.kite.trade, value only.`);
+  }
+}
+
 export async function setCredentials(token, apiKey, apiSecret, persist = false) {
   const session = getSession(token);
   if (!session) throw new Error('Session expired');
+  const key = apiKey?.trim() || '';
+  const secret = apiSecret?.trim() || '';
+  if (!key || !secret) throw new Error('Both the API key and the API secret are required');
+  checkCredentialShape('API key', key);
+  checkCredentialShape('API secret', secret);
   const kite = getKiteSession(token);
-  kite.apiKey = apiKey?.trim() || null;
-  kite.apiSecret = apiSecret?.trim() || null;
+  kite.apiKey = key;
+  kite.apiSecret = secret;
   kite.accessToken = null;
   kite.lastError = null;
 
@@ -187,6 +222,32 @@ export function getLoginUrl(token) {
   return `https://kite.zerodha.com/connect/login?v=${KITE_VERSION}&api_key=${encodeURIComponent(kite.apiKey)}`;
 }
 
+const SOURCE_LABEL = {
+  saved: 'saved in this app',
+  shared: 'from the shared server file',
+  env: 'from the host\'s environment variables (KITE_API_KEY / KITE_API_SECRET)',
+  session: 'entered for this session',
+};
+
+/**
+ * Turn Kite's terse session errors into something actionable. "Invalid
+ * checksum" in particular only ever means the secret does not belong to the
+ * key: say which key and where it came from, and how to fix it.
+ */
+export function explainSessionError(message, kite) {
+  if (/checksum/i.test(message)) {
+    const key = kite.apiKey ? `${kite.apiKey.slice(0, 4)}••••` : 'this key';
+    const where = SOURCE_LABEL[kite.source] || 'in use';
+    return `Kite rejected the login: the API secret does not match API key ${key} (${where}). ` +
+      'Open developers.kite.trade → My apps → your app, copy the API secret again (it changes if it was ever regenerated), ' +
+      'and save the key and secret together in Kite Connect here.';
+  }
+  if (/token is invalid or has expired/i.test(message)) {
+    return 'The Kite login link expired or was already used. Click "Login with Kite" again.';
+  }
+  return message;
+}
+
 export async function completeSession(token, requestToken) {
   const kite = getKiteSession(token);
   if (!kite) throw new Error('Session expired');
@@ -217,7 +278,7 @@ export async function completeSession(token, requestToken) {
 
     const json = await res.json();
     if (!res.ok || json.status !== 'success') {
-      const msg = json.message || `Kite session exchange failed (HTTP ${res.status})`;
+      const msg = explainSessionError(json.message || `Kite session exchange failed (HTTP ${res.status})`, kite);
       kite.lastError = msg;
       throw new Error(msg);
     }

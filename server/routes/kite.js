@@ -59,6 +59,9 @@ router.get('/login-url', (req, res) => {
 router.get('/callback', async (req, res) => {
   const token = getToken(req);
   const { request_token, status } = req.query;
+  // Error text comes from Kite and names come from the account: escaped, since
+  // this page is HTML.
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   const page = (title, body, ok) => `<!doctype html><html><head><title>${title}</title>
     <style>body{font-family:system-ui;background:#0d1117;color:#e6edf3;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
     .card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:32px 40px;text-align:center;max-width:420px}
@@ -75,9 +78,9 @@ router.get('/callback', async (req, res) => {
 
   try {
     const st = await completeSession(token, request_token);
-    res.send(page('Connected to Kite ✓', `Logged in as ${st.userName || st.userId}. Live NSE data is now active.`, true));
+    res.send(page('Connected to Kite ✓', `Logged in as ${esc(st.userName || st.userId)}. Live NSE data is now active.`, true));
   } catch (err) {
-    res.send(page('Connection failed', err.message, false));
+    res.send(page('Connection failed', esc(err.message), false));
   }
 });
 

@@ -544,7 +544,11 @@ function formatKiteDate(d) {
  * Returns null (never throws) when unavailable — callers fall back to simulated data.
  */
 export async function getHistoricalCandles(token, symbol, interval, fromDate, toDate) {
-  const cacheKey = `${symbol}:${interval}:${fromDate.toISOString().slice(0, 10)}`;
+  // The end date is part of the key. Without it, two requests sharing a start
+  // date but ending on different days — daily candles up to yesterday, and up
+  // to today after the close — shared one entry for six hours, so the later one
+  // could be served the earlier window or a half-formed intraday daily bar.
+  const cacheKey = `${symbol}:${interval}:${fromDate.toISOString().slice(0, 10)}:${toDate.toISOString().slice(0, 10)}`;
   const cached = historicalCache.get(cacheKey);
   const ttl = HISTORICAL_CACHE_TTL_MS[interval] || 60_000;
   if (cached && Date.now() - cached.fetchedAt < ttl) return cached.candles;

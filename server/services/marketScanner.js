@@ -155,10 +155,17 @@ export function quoteScore(ind, marketChangePct = 0) {
  * liquidity gate — median rather than mean because a handful of circuit-locked
  * movers would drag a mean and quietly shift every relative-strength figure.
  */
-export function scanMarket(quotes, { filters = DEFAULT_FILTERS, limit = 40 } = {}) {
+export function scanMarket(quotes, { filters = DEFAULT_FILTERS, limit = 40, fnoSymbols = null } = {}) {
+  // `fnoSymbols` (a Set or Map keyed by symbol, e.g. from getFnoUnderlyings)
+  // restricts the scan to stocks with futures and options. Null scans
+  // everything, which callers should only do knowingly: the trading rule is
+  // F&O stocks only. An empty set is treated like null — an empty F&O list is a
+  // failed download, not a market with no derivatives.
+  const fnoOnly = fnoSymbols && fnoSymbols.size > 0;
   const all = [];
   for (const [key, quote] of Object.entries(quotes || {})) {
     const symbol = key.startsWith('NSE:') ? key.slice(4) : key;
+    if (fnoOnly && !fnoSymbols.has(symbol)) continue;
     const ind = indicatorsFromQuote(symbol, quote);
     if (ind) all.push(ind);
   }

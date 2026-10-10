@@ -17,40 +17,80 @@
  * All output is algorithmic screening for educational purposes only — not
  * investment advice.
  */
-import { getHistoricalCandles, getMargins } from './kiteService.js';
+import { getHistoricalCandles, getMargins, getFnoUnderlyings } from './kiteService.js';
 import { getTodaysEvents, getFundamentals } from './nseService.js';
 
-// NIFTY-50 style universe.
+// NIFTY-50 style universe, restricted to F&O stocks.
 //
 // `ref` is ONLY a seed for the offline simulator — it is never used when Kite
 // is connected, since live quotes overwrite ltp/open/close in generateInsights.
 // Treat these as rough anchors, not prices: they go stale, and a stale ref
 // silently produces plausible-looking simulated levels. Verify against your
 // broker feed before acting on anything computed from a simulated series.
+//
+// `fno` is a static snapshot of F&O membership, used only when Kite's NFO
+// instrument master is unavailable. When it is available, the master decides —
+// stocks enter and leave F&O a few times a year, and the snapshot will lag.
+//
+// TATAMOTORS removed Oct 2026: the symbol ceased to exist on 14 Oct 2025 when
+// the company demerged and was renamed Tata Motors Passenger Vehicles (TMPV);
+// its F&O contracts were force-expired the day before. It had been falling back
+// to simulated data ever since, presenting an untradeable stock as a setup.
+// TMPV is not added here because its reference price is unverified.
 export const UNIVERSE = [
-  { symbol: 'RELIANCE',   name: 'Reliance Industries',  sector: 'Energy',     ref: 2850 },
-  { symbol: 'TCS',        name: 'Tata Consultancy',     sector: 'IT',         ref: 3520 },
-  { symbol: 'INFY',       name: 'Infosys',              sector: 'IT',         ref: 1680 },
-  { symbol: 'HDFCBANK',   name: 'HDFC Bank',            sector: 'Banking',    ref: 1620 },
-  { symbol: 'ICICIBANK',  name: 'ICICI Bank',           sector: 'Banking',    ref: 1025 },
-  { symbol: 'SBIN',       name: 'State Bank of India',  sector: 'Banking',    ref: 780 },
-  { symbol: 'BHARTIARTL', name: 'Bharti Airtel',        sector: 'Telecom',    ref: 1290 },
-  { symbol: 'ITC',        name: 'ITC',                  sector: 'FMCG',       ref: 435 },
-  { symbol: 'LT',         name: 'Larsen & Toubro',      sector: 'Infra',      ref: 3560 },
-  { symbol: 'TATAMOTORS', name: 'Tata Motors',          sector: 'Auto',       ref: 980 },
-  { symbol: 'TATASTEEL',  name: 'Tata Steel',           sector: 'Metals',     ref: 165 },
-  { symbol: 'HINDALCO',   name: 'Hindalco',             sector: 'Metals',     ref: 640 },
-  { symbol: 'AXISBANK',   name: 'Axis Bank',            sector: 'Banking',    ref: 1130 },
-  { symbol: 'MARUTI',     name: 'Maruti Suzuki',        sector: 'Auto',       ref: 12400 },
-  { symbol: 'SUNPHARMA',  name: 'Sun Pharma',           sector: 'Pharma',     ref: 1520 },
-  { symbol: 'WIPRO',      name: 'Wipro',                sector: 'IT',         ref: 520 },
+  { symbol: 'RELIANCE',   name: 'Reliance Industries',  sector: 'Energy',     ref: 2850,  fno: true },
+  { symbol: 'TCS',        name: 'Tata Consultancy',     sector: 'IT',         ref: 3520,  fno: true },
+  { symbol: 'INFY',       name: 'Infosys',              sector: 'IT',         ref: 1680,  fno: true },
+  { symbol: 'HDFCBANK',   name: 'HDFC Bank',            sector: 'Banking',    ref: 1620,  fno: true },
+  { symbol: 'ICICIBANK',  name: 'ICICI Bank',           sector: 'Banking',    ref: 1025,  fno: true },
+  { symbol: 'SBIN',       name: 'State Bank of India',  sector: 'Banking',    ref: 780,   fno: true },
+  { symbol: 'BHARTIARTL', name: 'Bharti Airtel',        sector: 'Telecom',    ref: 1290,  fno: true },
+  { symbol: 'ITC',        name: 'ITC',                  sector: 'FMCG',       ref: 435,   fno: true },
+  { symbol: 'LT',         name: 'Larsen & Toubro',      sector: 'Infra',      ref: 3560,  fno: true },
+  { symbol: 'TATASTEEL',  name: 'Tata Steel',           sector: 'Metals',     ref: 165,   fno: true },
+  { symbol: 'HINDALCO',   name: 'Hindalco',             sector: 'Metals',     ref: 640,   fno: true },
+  { symbol: 'AXISBANK',   name: 'Axis Bank',            sector: 'Banking',    ref: 1130,  fno: true },
+  { symbol: 'MARUTI',     name: 'Maruti Suzuki',        sector: 'Auto',       ref: 12400, fno: true },
+  { symbol: 'SUNPHARMA',  name: 'Sun Pharma',           sector: 'Pharma',     ref: 1520,  fno: true },
+  { symbol: 'WIPRO',      name: 'Wipro',                sector: 'IT',         ref: 520,   fno: true },
   // Added Jul 2026 — active names missing from the original list. Refs sourced
   // from public quotes and cross-checked; unverified names deliberately left
   // out rather than seeded with a number that might be wrong.
-  { symbol: 'BAJFINANCE', name: 'Bajaj Finance',        sector: 'Financials', ref: 1056 },
-  { symbol: 'M&M',        name: 'Mahindra & Mahindra',  sector: 'Auto',       ref: 3284 },
-  { symbol: 'BEL',        name: 'Bharat Electronics',   sector: 'Defence',    ref: 385 },
+  { symbol: 'BAJFINANCE', name: 'Bajaj Finance',        sector: 'Financials', ref: 1056,  fno: true },
+  { symbol: 'M&M',        name: 'Mahindra & Mahindra',  sector: 'Auto',       ref: 3284,  fno: true },
+  { symbol: 'BEL',        name: 'Bharat Electronics',   sector: 'Defence',    ref: 385,   fno: true },
 ];
+
+/**
+ * Restrict a universe to F&O stocks.
+ *
+ * `fnoMap` is Kite's NFO-derived Map<symbol, { lotSize, expiry }>, or null when
+ * it could not be fetched. With it, membership and lot size come from the
+ * exchange's own instrument list. Without it, the static `fno` flags apply and
+ * lot size is unknown — a guessed lot size would be worse than none, because
+ * it sizes real positions.
+ *
+ * Fails open to the static list, never closed to nothing: an empty or missing
+ * NFO list is far likelier to be a download problem than a market with no
+ * derivatives, and an empty board would hide that.
+ */
+export function filterToFno(universe, fnoMap) {
+  const live = fnoMap instanceof Map && fnoMap.size > 0;
+  const included = [];
+  const excluded = [];
+  for (const stock of universe) {
+    const inFno = live ? fnoMap.has(stock.symbol) : stock.fno === true;
+    if (inFno) {
+      included.push({ ...stock, lotSize: live ? fnoMap.get(stock.symbol).lotSize : null });
+    } else {
+      excluded.push(stock.symbol);
+    }
+  }
+  // A live list that matches none of these large-caps means the symbols do not
+  // line up (a format change in the dump), not that all of them left F&O.
+  if (live && included.length === 0) return filterToFno(universe, null);
+  return { included, excluded, source: live ? 'KITE_NFO' : 'STATIC' };
+}
 
 // ---------- deterministic RNG (stable picks per symbol per day) ----------
 function hashSeed(str) {
@@ -139,6 +179,77 @@ function sma(closes, period) {
   return round2(slice.reduce((a, b) => a + b, 0) / period);
 }
 
+/**
+ * Exponential moving average as a full series, seeded with the simple average
+ * of the first `period` values (the conventional seed, and the one charting
+ * packages use, so values here match what a trader sees on TradingView).
+ * Positions before the seed are null rather than a half-warmed value.
+ */
+function emaSeries(values, period) {
+  if (values.length < period) return null;
+  const out = new Array(values.length).fill(null);
+  const k = 2 / (period + 1);
+  let prev = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  out[period - 1] = prev;
+  for (let i = period; i < values.length; i++) {
+    prev = values[i] * k + prev * (1 - k);
+    out[i] = prev;
+  }
+  return out;
+}
+
+export const MACD_PERIODS = { fast: 12, slow: 26, signal: 9 };
+
+/**
+ * MACD(12, 26, 9) on a series of closes.
+ *
+ * Returns null until there are enough closes for the signal line to exist —
+ * `slow + signal - 1` bars. With fewer, an EMA seeded from almost nothing
+ * produces a crossover out of arithmetic rather than price action, and a
+ * scored crossover that is really an artefact of warm-up is worse than none.
+ *
+ * `histogramPct` is the histogram as a percentage of price. The raw histogram
+ * is in rupees, so a ₹12,000 stock's reads fifty times a ₹240 stock's for the
+ * same relative move; the percentage is what can be compared across a universe.
+ */
+export function computeMACD(closes, { fast, slow, signal } = MACD_PERIODS) {
+  if (!Array.isArray(closes) || closes.length < slow + signal - 1) return null;
+
+  const fastE = emaSeries(closes, fast);
+  const slowE = emaSeries(closes, slow);
+  // The MACD line exists from the slow EMA's seed onward.
+  const macdLine = closes.slice(slow - 1).map((_, j) => fastE[j + slow - 1] - slowE[j + slow - 1]);
+  const signalLine = emaSeries(macdLine, signal);
+  if (!signalLine) return null;
+
+  const hist = macdLine.map((m, i) => (signalLine[i] == null ? null : m - signalLine[i]));
+  const n = hist.length;
+  const histNow = hist[n - 1];
+  const histPrev = hist[n - 2];
+  const histPrev2 = hist[n - 3];
+
+  // A crossover is the histogram changing sign. "Recent" means within the last
+  // two bars: a cross that happened ten bars ago is an established trend whose
+  // move has largely been made, not a fresh entry signal.
+  const sign = v => (v == null ? 0 : Math.sign(v));
+  const crossedRecently =
+    (histPrev != null && sign(histNow) !== sign(histPrev) && sign(histNow) !== 0) ||
+    (histPrev2 != null && sign(histPrev) !== sign(histPrev2) && sign(histNow) === sign(histPrev) && sign(histNow) !== 0);
+
+  const price = closes[closes.length - 1];
+  return {
+    macd: Math.round(macdLine[n - 1] * 1e4) / 1e4,
+    signal: Math.round(signalLine[n - 1] * 1e4) / 1e4,
+    histogram: Math.round(histNow * 1e4) / 1e4,
+    histogramPct: price ? Math.round((histNow / price) * 100 * 1e4) / 1e4 : 0,
+    // Momentum behind the move: a positive histogram that is shrinking is a
+    // bullish trend running out of steam, not one gathering it.
+    expanding: histPrev != null && Math.abs(histNow) > Math.abs(histPrev),
+    crossedRecently,
+    bars: closes.length,
+  };
+}
+
 // ---------- cross-sectional statistics ----------
 function mean(xs) {
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
@@ -205,6 +316,9 @@ async function fetchRealSeries(token, symbol) {
     sma20: sma(dailyCloses, 20),
     sma50: sma(dailyCloses, 50),
     sma200: sma(dailyCloses, 200),
+    // Daily MACD is the fallback before the session has enough 5-minute bars
+    // for its own; a year of daily closes is plenty to warm it up.
+    macdDaily: computeMACD(dailyCloses),
   };
 }
 
@@ -229,6 +343,7 @@ export function computeIndicators(series) {
       gapPct: 0, changePct: 0, rangePosition: 50,
       volume: 0,
       sma20: series.sma20 ?? null, sma50: series.sma50 ?? null, sma200: series.sma200 ?? null,
+      macd: series.macdDaily ?? null, macdTimeframe: series.macdDaily ? '1d' : null,
       real: series.real ?? false,
       noData: true,
     };
@@ -319,7 +434,35 @@ export function computeIndicators(series) {
     sma20: series.sma20 ?? null,
     sma50: series.sma50 ?? null,
     sma200: series.sma200 ?? null,
+    ...pickMACD(candles, series),
   };
+}
+
+/**
+ * MACD on the trading timeframe when the session has warmed it up, otherwise
+ * daily MACD as trend context, otherwise nothing.
+ *
+ * 5-minute MACD(12,26,9) needs 34 bars — about 12:05 IST — before it exists.
+ * Rather than score nothing all morning, a stock with daily history falls back
+ * to its daily MACD. The two answer different questions (timing versus trend),
+ * so the timeframe travels with the value and is named wherever it is shown.
+ */
+function pickMACD(candles, series) {
+  const intraday = computeMACD(candles.map(c => c.close));
+  if (intraday) return { macd: intraday, macdTimeframe: '5m' };
+  if (series.macdDaily) return { macd: series.macdDaily, macdTimeframe: '1d' };
+  return { macd: null, macdTimeframe: null };
+}
+
+/**
+ * How far price sits from its 50-day average, in percent. Signed, so it reads
+ * as trend strength: +6 is well into an uptrend, -6 well into a downtrend.
+ * Computed from `ind.ltp` at scoring time rather than stored, because a live
+ * quote overwrites ltp after indicators are built.
+ */
+export function maDistancePct(ind) {
+  if (ind.sma50 == null || !(ind.sma50 > 0) || ind.ltp == null) return null;
+  return round2(((ind.ltp - ind.sma50) / ind.sma50) * 100);
 }
 
 // ---------- scoring & pick generation ----------
@@ -353,12 +496,30 @@ export function buildUniverseContext(indicators) {
   // keeps the band meaningful across timeframes, regimes, and both data sources.
   const medianAtrPct = median(atrPcts);
 
+  // MACD and MA distance are only defined for some stocks (MACD needs warm-up;
+  // the MAs need Kite daily history), so their stats are taken over the stocks
+  // that have them. Null when nobody does.
+  const statsOf = xs => (xs.length ? { mean: mean(xs), sd: stdev(xs) } : null);
+
+  // Kept per timeframe: a 5-minute and a daily histogram measure momentum over
+  // windows fifty-fold apart, so pooling them would rank one stock's intraday
+  // wiggle against another's multi-week trend.
+  const macdByTf = {};
+  for (const tf of ['5m', '1d']) {
+    macdByTf[tf] = statsOf(indicators
+      .filter(i => i.macd && i.macdTimeframe === tf && Number.isFinite(i.macd.histogramPct))
+      .map(i => i.macd.histogramPct));
+  }
+  const maDistances = indicators.map(maDistancePct).filter(v => v != null && Number.isFinite(v));
+
   return {
     marketChangePct,
     medianAtrPct: round2(medianAtrPct),
     atrBand: { low: round2(medianAtrPct * 0.5), high: round2(medianAtrPct * 1.8) },
     relStrength: { mean: mean(relStrengths), sd: stdev(relStrengths) },
     relVolume: { mean: mean(relVolumes), sd: stdev(relVolumes) },
+    macd: macdByTf,
+    maDistance: statsOf(maDistances),
   };
 }
 
@@ -377,6 +538,13 @@ export function volatilityFit(atrPct, band) {
   const distance = Math.max(band.low - atrPct, atrPct - band.high, 0);
   return clamp(1 - distance / width, 0, 1);
 }
+
+/**
+ * Largest magnitude the tie-breaking edge may add to or subtract from a score.
+ * Must stay below 0.5: two edges at opposite extremes then shift a pair by
+ * under one point, and integer scores differ by at least one. See rankScore.
+ */
+export const EDGE_BOUND = 0.49;
 
 export function scoreStock(ind, context = null) {
   let long = 0, short = 0;
@@ -418,9 +586,49 @@ export function scoreStock(ind, context = null) {
   if (ind.rangePosition > 80) { long += 10; note('Price near day high (strength)', 10, 'LONG'); }
   if (ind.rangePosition < 20) { short += 10; note('Price near day low (weakness)', 10, 'SHORT'); }
 
-  if (ind.sma20 != null && ind.sma50 != null) {
-    if (ind.ltp > ind.sma20 && ind.sma20 > ind.sma50) { long += 10; note('Uptrend: price above rising 20/50-day SMA', 10, 'LONG'); }
-    if (ind.ltp < ind.sma20 && ind.sma20 < ind.sma50) { short += 10; note('Downtrend: price below falling 20/50-day SMA', 10, 'SHORT'); }
+  // ---- moving-average structure (20/50-day, needs Kite daily history) ----
+  //
+  // Graded rather than all-or-nothing. Fully stacked (price > MA20 > MA50) is
+  // an established trend. Price on the far side of MA20 while the averages
+  // still point the other way is an early turn or a pullback — real, but
+  // unconfirmed, so it is worth half. The fast average decides the side
+  // because it is the one that responds within a few sessions.
+  if (ind.sma20 != null && ind.sma50 != null && ind.ltp != null) {
+    const above20 = ind.ltp > ind.sma20;
+    const below20 = ind.ltp < ind.sma20;
+    if (above20 && ind.sma20 > ind.sma50) {
+      long += 12; note(`Uptrend: price above MA20 (${ind.sma20}) above MA50 (${ind.sma50})`, 12, 'LONG');
+    } else if (below20 && ind.sma20 < ind.sma50) {
+      short += 12; note(`Downtrend: price below MA20 (${ind.sma20}) below MA50 (${ind.sma50})`, 12, 'SHORT');
+    } else if (above20) {
+      long += 6; note(`Reclaimed MA20 (${ind.sma20}) but MA20 still under MA50 (${ind.sma50}) — early turn, unconfirmed`, 6, 'LONG');
+    } else if (below20) {
+      short += 6; note(`Lost MA20 (${ind.sma20}) though MA20 still over MA50 (${ind.sma50}) — pullback, unconfirmed`, 6, 'SHORT');
+    }
+  }
+
+  // ---- MACD(12,26,9) ----
+  //
+  // Scored on the histogram, which is MACD minus its signal line: positive
+  // means bullish momentum, negative bearish. Freshness and direction of change
+  // set the weight. A crossover in the last two bars is a new signal; an older
+  // one whose histogram is still widening is a trend with momentum behind it; an
+  // older one whose histogram is shrinking is a move running out of steam, and
+  // is worth least. Zero histogram means no reading.
+  if (ind.macd && ind.macd.histogram !== 0) {
+    const m = ind.macd;
+    const bullish = m.histogram > 0;
+    const tf = ind.macdTimeframe === '1d' ? 'daily' : '5-min';
+    let points, label;
+    if (m.crossedRecently) {
+      points = 15; label = `Fresh ${tf} MACD ${bullish ? 'bullish' : 'bearish'} crossover`;
+    } else if (m.expanding) {
+      points = 10; label = `${tf} MACD ${bullish ? 'above' : 'below'} signal, momentum building`;
+    } else {
+      points = 5; label = `${tf} MACD ${bullish ? 'above' : 'below'} signal but histogram fading`;
+    }
+    if (bullish) long += points; else short += points;
+    note(label, points, bullish ? 'LONG' : 'SHORT');
   }
 
   // ---- live-only microstructure signals (null unless Kite is connected) ----
@@ -473,23 +681,40 @@ export function scoreStock(ind, context = null) {
   // raw total negative, and a negative score would sort oddly downstream.
   const score = Math.max(0, Math.min(100, Math.max(long, short)));
 
-  // The discrete signals above are worth 10-25 points each, so scores land on
-  // multiples of 5 and a 19-stock universe ties heavily — six stocks sharing
-  // 85 was routine. Ties then resolved by array order, which silently biased
-  // picks toward whichever names happen to be listed first.
+  // The discrete signals land scores on coarse steps, so a 19-stock universe
+  // ties heavily — six stocks sharing 85 was routine. Ties then resolved by
+  // array order, silently biasing picks toward whichever names are listed first.
   //
-  // `rankScore` adds a continuous cross-sectional term to order those ties by
-  // how far each stock stands out from its peers. It is bounded to ±7 so it can
-  // never bridge a genuine one-signal gap (the smallest is 10) — it separates
-  // equals without overriding the setup itself.
+  // `rankScore` adds a continuous cross-sectional term that orders those ties
+  // by how far each stock stands out from its peers — and does nothing else.
+  // `score` is always an integer, so an edge held strictly inside ±0.5 can
+  // reorder equal scores but never unequal ones: a 1-point gap (the smallest
+  // possible, since penalties are any whole number) survives the widest
+  // possible swing of 0.98. An earlier ±7 bound claimed this property and did
+  // not have it: two stocks 10 apart could swap on opposite 7-point edges.
   let edge = 0;
   if (context) {
+    const sign = direction === 'LONG' ? 1 : -1;
     const rsZ = zscore(relStrength, context.relStrength.mean, context.relStrength.sd);
     const rvZ = zscore(ind.relVolume, context.relVolume.mean, context.relVolume.sd);
-    // Relative strength is signed: reward it in the direction being traded.
-    const directional = direction === 'LONG' ? rsZ : -rsZ;
-    const composite = 0.5 * directional + 0.3 * rvZ + 0.2 * (volFit * 2 - 1);
-    edge = clamp(composite, -2, 2) / 2 * 7;
+    // Absent MACD or MA data scores 0 — the universe mean — rather than
+    // counting for or against the stock.
+    const macdStats = ind.macd && context.macd ? context.macd[ind.macdTimeframe] : null;
+    const macdZ = macdStats
+      ? zscore(ind.macd.histogramPct, macdStats.mean, macdStats.sd) : 0;
+    const maDist = maDistancePct(ind);
+    const maZ = maDist != null && context.maDistance
+      ? zscore(maDist, context.maDistance.mean, context.maDistance.sd) : 0;
+
+    // Relative strength, MACD and MA distance are signed: reward them in the
+    // direction being traded. Volume and volatility fit are unsigned.
+    const composite =
+      0.35 * sign * rsZ +
+      0.20 * rvZ +
+      0.20 * sign * macdZ +
+      0.10 * sign * maZ +
+      0.15 * (volFit * 2 - 1);
+    edge = clamp(composite, -2, 2) / 2 * EDGE_BOUND;
   }
 
   return {
@@ -497,7 +722,12 @@ export function scoreStock(ind, context = null) {
     score,
     // Sort on this, display `score`. Keeping them separate leaves the integer
     // score the UI and the >= 40 cutoff already depend on untouched.
-    rankScore: round2(clamp(score + edge, 0, 100)),
+    // Not clamped to 0-100: clamping would collapse the tie-break for every
+    // stock pinned at 0 or 100, which is exactly where ties are most common.
+    // Four places, not two: edges are fractions of a point, and rounding them
+    // to cents would merge near-ties back into the array-order ties this exists
+    // to break.
+    rankScore: Math.round((score + edge) * 1e4) / 1e4,
     relStrength,
     reasons,
     // Only the winning side's signals actually built the score, so the UI can
@@ -527,6 +757,7 @@ export function buildPick(stock, ind, scored) {
       symbol: stock.symbol,
       name: stock.name,
       sector: stock.sector,
+      lotSize: stock.lotSize ?? null,
       direction,
       score: scored.score,
       rankScore: scored.rankScore,
@@ -574,6 +805,8 @@ export function buildPick(stock, ind, scored) {
     symbol: stock.symbol,
     name: stock.name,
     sector: stock.sector,
+    // F&O contract lot from Kite's NFO master; null offline rather than a guess.
+    lotSize: stock.lotSize ?? null,
     direction,
     score: scored.score,
     rankScore: scored.rankScore,
@@ -610,6 +843,9 @@ export function buildPick(stock, ind, scored) {
       sma20: ind.sma20,
       sma50: ind.sma50,
       sma200: ind.sma200,
+      maDistancePct: maDistancePct(ind),
+      macd: ind.macd ?? null,
+      macdTimeframe: ind.macdTimeframe ?? null,
       // Live-only (null on simulated series)
       bid: ind.bid ?? null,
       ask: ind.ask ?? null,
@@ -654,7 +890,13 @@ export function normalisePinned(pinned) {
 }
 
 export async function generateInsights(token, liveQuotes = null, options = {}) {
-  const snapshots = await Promise.all(UNIVERSE.map(async stock => {
+  // Only stocks with futures and options are considered. Filtering before the
+  // per-stock fetches also saves two throttled historical calls per excluded
+  // name. No token means no Kite, so skip straight to the static list.
+  const fnoMap = token ? await getFnoUnderlyings(token).catch(() => null) : null;
+  const fno = filterToFno(UNIVERSE, fnoMap);
+
+  const snapshots = await Promise.all(fno.included.map(async stock => {
     const [real, events, fundamentals] = await Promise.all([
       fetchRealSeries(token, stock.symbol).catch(() => null),
       getTodaysEvents(stock.symbol).catch(() => []),
@@ -784,7 +1026,7 @@ export async function generateInsights(token, liveQuotes = null, options = {}) {
 
   // Movers & scanners
   const bySymbol = snapshots.map(s => ({
-    symbol: s.stock.symbol, name: s.stock.name, sector: s.stock.sector,
+    symbol: s.stock.symbol, name: s.stock.name, sector: s.stock.sector, lotSize: s.stock.lotSize ?? null,
     ltp: s.ind.ltp, changePct: s.ind.changePct, gapPct: s.ind.gapPct,
     relVolume: s.ind.relVolume, orbStatus: s.ind.orbStatus,
     aboveVwap: s.ind.aboveVwap, momentum30m: s.ind.momentum30m,
@@ -792,6 +1034,8 @@ export async function generateInsights(token, liveQuotes = null, options = {}) {
     score: s.scored.score, rankScore: s.scored.rankScore, direction: s.scored.direction,
     real: s.ind.real, eventToday: s.ind.eventToday,
     sma20: s.ind.sma20, sma50: s.ind.sma50, sma200: s.ind.sma200,
+    maDistancePct: maDistancePct(s.ind),
+    macdHistogram: s.ind.macd?.histogram ?? null, macdTimeframe: s.ind.macdTimeframe ?? null,
   }));
 
   const gainers = [...bySymbol].sort((a, b) => b.changePct - a.changePct).slice(0, 5);
@@ -808,6 +1052,15 @@ export async function generateInsights(token, liveQuotes = null, options = {}) {
     realDataCoverage: `${realCount}/${bySymbol.length}`,
     disclaimer: 'Algorithmic screening for educational purposes only. Not investment advice. Consult a SEBI-registered advisor before trading.',
     breadth: { advances, declines, unchanged: snapshots.length - advances - declines, avgChangePct: avgChange, sentiment },
+    // Which stocks were eligible and on whose authority. `source` is KITE_NFO
+    // when membership came from the exchange's instrument list, STATIC when it
+    // fell back to the hand-maintained flags.
+    universeFilter: {
+      rule: 'FNO_ONLY',
+      source: fno.source,
+      included: fno.included.length,
+      excluded: fno.excluded,
+    },
     // The baselines every relative figure above is measured against, so a
     // reader can tell "up 0.5%" on a market up 2% apart from genuine strength.
     context: {

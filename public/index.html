@@ -312,7 +312,9 @@
       <div class="card"><h3>Top gainers</h3><table id="gainers-table"></table></div>
       <div class="card"><h3>Top losers</h3><table id="losers-table"></table></div>
       <div class="card"><h3>Volume spikes</h3><table id="volume-table"></table></div>
-      <div class="card"><h3>Full universe</h3><div style="max-height:320px;overflow:auto"><table id="universe-table"></table></div></div>
+      <!-- Full width: with the MA, MACD and lot columns the table no longer fits
+           half the grid, and the score column would scroll out of sight. -->
+      <div class="card" style="grid-column:1/-1"><h3><span data-tip="fno" tabindex="0">F&amp;O universe</span> <span id="universe-source" class="muted" style="font-size:11px;font-weight:normal"></span></h3><div style="max-height:480px;overflow:auto"><table id="universe-table"></table></div></div>
     </div>
   </section>
 
@@ -443,7 +445,13 @@ const GLOSSARY = {
   orb: ['Opening range', 'Opening Range Breakout (ORB)',
     'The high and low of the first 15 minutes. Breaking out of that range on volume is one of the more reliable intraday continuation signals, which is why it is the highest-weighted signal here (25 points).'],
   sma: ['SMA', 'Simple Moving Average',
-    'The average closing price over the last N days. Price above a rising 20-day and 50-day average is the textbook definition of an uptrend; the 200-day is the long-term trend line.'],
+    'The average closing price over the last N days. Price above MA20 above MA50 — "stacked" — is the textbook uptrend and scores +12; the reverse is a downtrend. Price across MA20 while the averages still point the other way is an early turn or a pullback and scores +6. The 200-day is the long-term trend line. Needs Kite daily history.'],
+  macd: ['MACD', 'Moving Average Convergence Divergence (12, 26, 9)',
+    'The 12-period EMA minus the 26-period EMA, with a 9-period EMA of that as the signal line. The histogram (MACD minus signal) above zero is bullish momentum, below zero bearish. Scored +15 for a crossover in the last two bars, +10 for an older one still widening, +5 for one fading. Uses 5-minute candles once about 12:05 IST, when enough exist; daily candles before that, marked D.'],
+  fno: ['F&O', 'Futures & Options',
+    'Only stocks with exchange-traded futures and options are screened. F&O stocks are the most liquid on NSE, so entries and exits fill near the quoted price. With Kite connected the list comes from the exchange\'s instrument master; without it, from a static list kept in the code.'],
+  lotsize: ['Lot', 'F&O Lot Size',
+    'The number of shares in one futures or options contract, from the nearest expiry. Exchanges revise lots periodically. Shown only with Kite connected — never guessed, because a wrong lot size sizes a real position wrongly.'],
   ltp: ['LTP', 'Last Traded Price',
     'The price of the most recent trade — the live quote when Kite is connected.'],
   relvolume: ['Relative volume', 'Relative Volume (RVOL)',
@@ -579,7 +587,7 @@ function scoreTipHtml(p) {
       <tr class="total"><td>Setup score</td><td class="pts">${p.score}/100</td></tr>
     </table>
     ${info.length ? `<div class="tip-body" style="margin-top:6px">${info.map(b => b.label).join('<br>')} — noted, deliberately not scored: event-day moves are unpredictable.</div>` : ''}
-    <div class="tip-body" style="margin-top:6px">Shown only if 40 or more. Ranked among ties by relative strength and volume.</div>`;
+    <div class="tip-body" style="margin-top:6px">Shown only if 40 or more. Ranked among equal scores by relative strength, volume, MACD and distance from MA50 — never above a higher score.</div>`;
 }
 
 // ---------- guide ----------
@@ -629,8 +637,9 @@ const GUIDE = [
     targets as lines so you can see the plan against the price action it came from.</p>`],
 
   ['What the screener looks for', `
-    <p>Nine signals, each worth a fixed number of points. They were chosen to be reasonably independent — a
-    setup scoring well on several is stronger than one that trips the same idea repeatedly.</p>
+    <p>Only stocks with exchange-traded futures and options are screened. Each signal below is worth points;
+    the trend signals are graded by how strong and how fresh they are. They were chosen to be reasonably
+    independent — a setup scoring well on several is stronger than one that trips the same idea repeatedly.</p>
     <table class="signal-table">
       <tr><td><strong>Opening range breakout</strong><br><span class="muted">Price breaks the first 15 minutes' high or low.</span></td><td class="w plus">+25</td></tr>
       <tr><td><strong>VWAP with relative strength</strong><br><span class="muted">Above VWAP <em>and</em> outperforming the market, or below and underperforming.</span></td><td class="w plus">+20</td></tr>
@@ -638,7 +647,8 @@ const GUIDE = [
       <tr><td><strong>Volume surge</strong><br><span class="muted">Above 1.3&times; the session average, credited to whichever side the stock is moving relative to its peers.</span></td><td class="w plus">+15</td></tr>
       <tr><td><strong>Gap holding and extending</strong><br><span class="muted">An opening gap that kept going rather than filling.</span></td><td class="w plus">+15</td></tr>
       <tr><td><strong>Position in the day's range</strong><br><span class="muted">Near the high for longs, near the low for shorts.</span></td><td class="w plus">+10</td></tr>
-      <tr><td><strong>Moving average trend</strong><br><span class="muted">Price above a rising 20 and 50-day average, or below a falling one.</span></td><td class="w plus">+10</td></tr>
+      <tr><td><strong>Moving average trend (MA20 / MA50)</strong> <span class="muted">(needs Kite history)</span><br><span class="muted">Fully stacked — price above MA20 above MA50, or the reverse — is an established trend. Price across MA20 while the averages still point the other way is an early turn or a pullback, worth half.</span></td><td class="w plus">+12 / +6</td></tr>
+      <tr><td><strong>MACD (12, 26, 9)</strong><br><span class="muted">Histogram above zero for longs, below for shorts. A crossover in the last two bars scores most; an older one still widening scores less; one that is fading, least. Uses 5-minute candles once about 12:05 IST, daily candles before that.</span></td><td class="w plus">+15 / +10 / +5</td></tr>
       <tr><td><strong>Order book imbalance</strong> <span class="muted">(live only)</span><br><span class="muted">Resting orders leaning meaningfully one way.</span></td><td class="w plus">+10</td></tr>
       <tr><td><strong>Wide spread</strong><br><span class="muted">Above 0.15% — your cost to get in and out eats the edge.</span></td><td class="w minus">−15</td></tr>
       <tr><td><strong>Near circuit limit</strong><br><span class="muted">Risk of being frozen in a position you cannot exit.</span></td><td class="w minus">−20</td></tr>
@@ -1182,7 +1192,32 @@ function renderInsights(d) {
   // The universe table is the only place every stock is listed, so it is where
   // you can pin one that is not currently on the picks board — otherwise a
   // stock could only be pinned during the window it happened to be ranked.
-  $('#universe-table').innerHTML = '<tr><th>Pin</th><th>Symbol</th><th>LTP</th><th>Chg</th><th>Gap</th><th>VWAP</th><th>Score</th></tr>' +
+  // Say on whose authority the list is F&O-only: the exchange's own instrument
+  // master when Kite is connected, a hand-kept snapshot otherwise.
+  const uf = d.universeFilter;
+  $('#universe-source').textContent = uf
+    ? `· ${uf.included} stocks · ${uf.source === 'KITE_NFO' ? 'F&O list from Kite NFO' : 'static F&O list (connect Kite for live)'}${uf.excluded.length ? ` · excluded: ${uf.excluded.join(', ')}` : ''}`
+    : '';
+
+  // MA20/MA50 structure, mirroring the engine's grading so the column and the
+  // score never disagree about which state a stock is in.
+  const maCell = s => {
+    if (s.sma20 == null || s.sma50 == null) return '<span class="muted" title="Needs Kite daily history">—</span>';
+    const title = `MA20 ${fmt(s.sma20)} · MA50 ${fmt(s.sma50)}${s.maDistancePct != null ? ` · ${pct(s.maDistancePct)} from MA50` : ''}`;
+    const up = s.ltp > s.sma20, down = s.ltp < s.sma20;
+    if (up && s.sma20 > s.sma50) return `<span class="pos" title="${title}">▲ stacked</span>`;
+    if (down && s.sma20 < s.sma50) return `<span class="neg" title="${title}">▼ stacked</span>`;
+    if (up) return `<span class="pos" title="${title}">↗ turning</span>`;
+    if (down) return `<span class="neg" title="${title}">↘ pullback</span>`;
+    return `<span class="muted" title="${title}">flat</span>`;
+  };
+  const macdCell = s => {
+    if (s.macdHistogram == null) return '<span class="muted" title="Not enough candles yet">—</span>';
+    const tf = s.macdTimeframe === '1d' ? 'D' : '5m';
+    return `<span class="${s.macdHistogram > 0 ? 'pos' : s.macdHistogram < 0 ? 'neg' : 'muted'}" title="MACD histogram (${s.macdTimeframe === '1d' ? 'daily' : '5-minute'})">${s.macdHistogram > 0 ? '+' : ''}${s.macdHistogram}</span> <span class="muted" style="font-size:10px">${tf}</span>`;
+  };
+
+  $('#universe-table').innerHTML = `<tr><th>Pin</th><th>Symbol</th><th>LTP</th><th>Chg</th><th>Gap</th><th>VWAP</th><th>${tip('sma', 'MA20/50')}</th><th>${tip('macd', 'MACD')}</th><th>${tip('lotsize', 'Lot')}</th><th>${tip('score', 'Score')}</th></tr>` +
     d.universe.map(s => {
       const isPinned = pinnedSymbols.includes(s.symbol);
       return `<tr><td><button class="pin-btn${isPinned ? ' pinned' : ''}" data-pin="${s.symbol}" style="position:static"
@@ -1192,6 +1227,9 @@ function renderInsights(d) {
       <td>₹${fmt(s.ltp)}</td><td class="${cls(s.changePct)}">${pct(s.changePct)}</td>
       <td class="${cls(s.gapPct)}">${pct(s.gapPct)}</td>
       <td>${s.aboveVwap ? '<span class="pos">above</span>' : '<span class="neg">below</span>'}</td>
+      <td>${maCell(s)}</td>
+      <td>${macdCell(s)}</td>
+      <td>${s.lotSize != null ? s.lotSize : '<span class="muted" title="Lot size comes from Kite\'s NFO list">—</span>'}</td>
       <td>${s.score} <span class="badge ${s.direction.toLowerCase()}" style="font-size:10px">${s.direction}</span></td></tr>`;
     }).join('');
 

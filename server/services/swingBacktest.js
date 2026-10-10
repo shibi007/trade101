@@ -47,7 +47,31 @@ export const VARIANTS = {
   BREAKOUTS_52W: { label: '52-week breakouts and breakdowns only', keep: s => s.setup === 'BREAKOUT_52W' || s.setup === 'BREAKDOWN_52W' },
   PULLBACKS: { label: 'Pullbacks and rallies only', keep: s => s.setup === 'PULLBACK' || s.setup === 'RALLY' },
   HIGH_SCORE: { label: 'Score 70 or more only', keep: s => s.score >= 70 },
+  // Longs only while Nifty is above its 200-day average, shorts only below.
+  // Needs index history; omitted from the results without it.
+  WITH_MARKET: {
+    label: 'With the market only (Nifty vs its 200-day average)',
+    needsRegime: true,
+    keep: (s, sig) => sig.regime != null && (s.direction === 'LONG' ? sig.regime === 'UP' : sig.regime === 'DOWN'),
+  },
 };
+
+/**
+ * Nifty's regime on each day: close above or below its 200-day average, from
+ * index candles up to and including that day — the same no-lookahead rule as
+ * the stocks.
+ */
+export function regimeByDay(indexCandles) {
+  const out = new Map();
+  if (!Array.isArray(indexCandles)) return out;
+  let sum = 0;
+  indexCandles.forEach((c, i) => {
+    sum += c.close;
+    if (i >= 200) sum -= indexCandles[i - 200].close;
+    if (i >= 199) out.set(dayKey(c), c.close > sum / 200 ? 'UP' : 'DOWN');
+  });
+  return out;
+}
 
 const dayKey = c => (c.time != null ? String(c.time).slice(0, 10) : `t${c.t}`);
 
@@ -205,21 +229,25 @@ function benchmark(candlesBySymbol, fromDay) {
  * oldest first. Returns per-variant summaries plus the trades of the full set
  * (the latest `tradeLimit` of them; 0 for all).
  */
-export function backtestSwing(candlesBySymbol, { tradeLimit = 200 } = {}) {
+export function backtestSwing(candlesBySymbol, { tradeLimit = 200, indexCandles = null } = {}) {
   const eligible = Object.fromEntries(Object.entries(candlesBySymbol)
     .filter(([, c]) => Array.isArray(c) && c.length > SWING_WARMUP + 1));
   const symbols = Object.keys(eligible);
   if (symbols.length === 0) return { available: false, reason: `Needs more than ${SWING_WARMUP + 1} daily candles per stock.` };
 
   const signals = collectSignals(eligible);
+  const regimes = regimeByDay(indexCandles);
+  for (const sig of signals) sig.regime = regimes.get(sig.day) ?? null;
+  const haveRegime = regimes.size > 0;
 
   const variants = {};
   let allTrades = [];
   for (const [key, v] of Object.entries(VARIANTS)) {
+    if (v.needsRegime && !haveRegime) continue;
     const busyUntil = {};
     const trades = [];
     for (const s of signals.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0))) {
-      if (!v.keep(s.scored)) continue;
+      if (!v.keep(s.scored, s)) continue;
       // One position per stock: ignore signals while one is still open.
       if (busyUntil[s.symbol] != null && s.index <= busyUntil[s.symbol]) continue;
       const t = simulateTrade(eligible[s.symbol], s);

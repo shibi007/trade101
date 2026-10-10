@@ -39,7 +39,7 @@ import {
   UNIVERSE, filterToFno, computeMACD,
   round2, mean, median, stdev, zscore, clamp, sma, nowIST, istAt,
 } from './insightsEngine.js';
-import { getHistoricalCandles, getFnoUnderlyings } from './kiteService.js';
+import { getHistoricalCandles, getFnoUnderlyings, getTickSize } from './kiteService.js';
 import { getTodaysEvents } from './nseService.js';
 
 // ---------- parameters ----------
@@ -454,6 +454,25 @@ export function generateDailySeries(symbol, ref, sessions = 320, date = new Date
   }));
 }
 
+// ---------- market regime ----------
+
+/** The index the market filter reads, as Kite names it in its instrument master. */
+export const MARKET_INDEX = 'NIFTY 50';
+
+/**
+ * Whether the market itself is trending up or down: the index's close against
+ * its 200-day average. Most trend-following systems only buy while the index is
+ * above it, because momentum strategies fail worst in the sharp rebounds that
+ * follow bear markets (Daniel & Moskowitz, 2016). Null without enough history.
+ */
+export function marketRegime(indexCandles) {
+  if (!Array.isArray(indexCandles) || indexCandles.length < 200) return null;
+  const closes = indexCandles.map(c => c.close);
+  const close = closes[closes.length - 1];
+  const sma200 = sma(closes, 200);
+  return { index: MARKET_INDEX, close: round2(close), sma200: round2(sma200), state: close > sma200 ? 'UP' : 'DOWN' };
+}
+
 // ---------- main entry ----------
 
 const DEFAULT_SWING_LIMIT = 5;
@@ -484,6 +503,10 @@ export async function generateSwingInsights(token, liveQuotes = null, options = 
     };
   }));
 
+  // The market's own trend. Offline there is no index history, so the filter
+  // is simply absent rather than guessed.
+  const regime = token ? marketRegime(await fetchDailyCandles(token, MARKET_INDEX).catch(() => null)) : null;
+
   const usable = rows.filter(r => r.si);
   const ctx = buildSwingContext(Object.fromEntries(usable.map(r => [r.stock.symbol, r.si])));
 
@@ -509,7 +532,14 @@ export async function generateSwingInsights(token, liveQuotes = null, options = 
       plan.liveEntry = round2(ltp);
       plan.liveRiskPerShare = round2(Math.abs(ltp - plan.stopLoss));
     }
-    return { ...r, scored, ltp, plan, planStatus };
+    // Trading against the market's trend is flagged, not penalised: whether it
+    // should cost points is for the backtest's market-filter variant to show.
+    const againstMarket = regime != null && scored.setup != null &&
+      ((scored.direction === 'LONG' && regime.state === 'DOWN') || (scored.direction === 'SHORT' && regime.state === 'UP'));
+    if (againstMarket) {
+      scored.reasons = [...scored.reasons, `⚠ Against the market: Nifty is ${regime.state === 'DOWN' ? 'below' : 'above'} its 200-day average`];
+    }
+    return { ...r, scored, ltp, plan, planStatus, againstMarket };
   });
 
   const card = r => ({
@@ -517,6 +547,7 @@ export async function generateSwingInsights(token, liveQuotes = null, options = 
     name: r.stock.name,
     sector: r.stock.sector,
     lotSize: r.stock.lotSize ?? null,
+    tickSize: getTickSize(r.stock.symbol),
     direction: r.scored.direction,
     // A multi-day short is only possible in futures in India.
     instrument: r.scored.direction === 'SHORT' ? 'FUTURES' : 'CASH_OR_FUTURES',
@@ -544,6 +575,7 @@ export async function generateSwingInsights(token, liveQuotes = null, options = 
     },
     real: r.real,
     eventToday: r.eventToday,
+    againstMarket: Boolean(r.againstMarket),
   });
 
   const limit = Math.max(1, Math.min(50, Number(options.limit) || DEFAULT_SWING_LIMIT));
@@ -567,6 +599,7 @@ export async function generateSwingInsights(token, liveQuotes = null, options = 
     disclaimer: 'Algorithmic screening for educational purposes only. Not investment advice. Swing trades are held overnight and carry gap risk that a stop cannot prevent. Consult a SEBI-registered advisor before trading.',
     universeFilter: { rule: 'FNO_ONLY', source: fno.source, included: fno.included.length, excluded: fno.excluded },
     context: { medianAtrPct: ctx.medianAtrPct, atrBand: ctx.atrBand },
+    marketRegime: regime,
     picks,
     watchlist,
     universe: scoredRows.sort(byRank).map(card),

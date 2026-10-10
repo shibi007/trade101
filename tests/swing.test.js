@@ -12,7 +12,8 @@ import {
   computeRSI, computeATR, swingIndicators, buildSwingContext, scoreSwing, swingPlan,
   generateDailySeries, generateSwingInsights, SWING_WARMUP, TIME_STOP_SESSIONS,
 } from '../server/services/swingEngine.js';
-import { backtestSwing, collectSignals, summarise } from '../server/services/swingBacktest.js';
+import { backtestSwing, collectSignals, summarise, regimeByDay } from '../server/services/swingBacktest.js';
+import { marketRegime } from '../server/services/swingEngine.js';
 
 // ---------- fixtures ----------
 
@@ -363,4 +364,38 @@ test('the daily simulator ends at the reference price and is deterministic', () 
   assert.equal(a.length, 300);
   assert.equal(a[a.length - 1].close, 2850);
   assert.deepEqual(a, b);
+});
+
+// ---------- market regime ----------
+
+test('market regime reads the index against its 200-day average', () => {
+  const up = fromCloses(Array.from({ length: 260 }, (_, i) => 20000 + i * 10));
+  const down = fromCloses(Array.from({ length: 260 }, (_, i) => 25000 - i * 10));
+  assert.equal(marketRegime(up).state, 'UP');
+  assert.equal(marketRegime(down).state, 'DOWN');
+  assert.equal(marketRegime(fromCloses(Array(150).fill(100))), null, 'needs 200 sessions');
+});
+
+test('regimeByDay uses only closes up to each day', () => {
+  // Flat at 100 for 220 days, then a jump: the regime flips only from the jump on.
+  const closes = [...Array(220).fill(100), 130, 130];
+  const c = fromCloses(closes);
+  const r = regimeByDay(c);
+  assert.equal(r.has(c[198].time), false, 'undefined before 200 closes');
+  assert.equal(r.get(c[219].time), 'DOWN', 'flat is not above the average');
+  assert.equal(r.get(c[220].time), 'UP');
+});
+
+test('the market-filter variant appears only with index history, and trades with the trend', () => {
+  const uni = walkUniverse(6, 420, 7, k => (k % 2 ? 0.001 : -0.001));
+  assert.equal(backtestSwing(uni).variants.WITH_MARKET, undefined);
+  // An index that rises throughout: only longs may pass the filter.
+  const idx = fromCloses(Array.from({ length: 420 }, (_, i) => 20000 * 1.0005 ** i), { start: '2021-01-04' });
+  const r = backtestSwing(uni, { indexCandles: idx, tradeLimit: 0 });
+  assert.ok(r.variants.WITH_MARKET);
+  const sigs = collectSignals(uni);
+  const regimes = regimeByDay(idx);
+  const shortsInUp = sigs.filter(s => s.scored.direction === 'SHORT' && regimes.get(s.day) === 'UP').length;
+  assert.ok(shortsInUp > 0, 'precondition: some shorts were against the market');
+  assert.ok(r.variants.WITH_MARKET.trades < r.variants.ALL.trades, 'the filter removes trades');
 });

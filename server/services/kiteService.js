@@ -340,7 +340,7 @@ function throttled(fn) {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ---------- instrument master (symbol -> instrument_token), cached ~24h ----------
-let instrumentCache = { fetchedAt: 0, bySymbol: new Map() };
+let instrumentCache = { fetchedAt: 0, bySymbol: new Map(), tickBySymbol: new Map(), indexBySymbol: new Map() };
 const INSTRUMENT_CACHE_TTL_MS = 20 * 60 * 60 * 1000;
 
 async function refreshInstruments(token) {
@@ -357,31 +357,44 @@ async function refreshInstruments(token) {
   const csv = await res.text();
 
   const bySymbol = new Map();
+  const tickBySymbol = new Map();
+  // Kept apart from equities so whole-market equity scans never quote an index.
+  const indexBySymbol = new Map();
   const lines = csv.split('\n');
-  const header = lines[0].split(',');
+  const header = splitCsvLine(lines[0]).map(h => h.trim());
   const idx = {
     token: header.indexOf('instrument_token'),
     symbol: header.indexOf('tradingsymbol'),
     segment: header.indexOf('segment'),
     type: header.indexOf('instrument_type'),
+    tick: header.indexOf('tick_size'),
   };
   for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i].replace(/\r$/, '');
     if (!line) continue;
-    const cols = line.split(',');
+    // Quote-aware: index names such as "NIFTY 50" sit in the same dump.
+    const cols = splitCsvLine(line);
     if (cols[idx.segment] === 'NSE' && cols[idx.type] === 'EQ') {
       bySymbol.set(cols[idx.symbol], cols[idx.token]);
+      const tick = Number(cols[idx.tick]);
+      if (tick > 0) tickBySymbol.set(cols[idx.symbol], tick);
+    } else if (cols[idx.segment] === 'INDICES') {
+      // Indices ("NIFTY 50"), for market-trend filters.
+      indexBySymbol.set(cols[idx.symbol], cols[idx.token]);
     }
   }
-  instrumentCache = { fetchedAt: Date.now(), bySymbol };
+  instrumentCache = { fetchedAt: Date.now(), bySymbol, tickBySymbol, indexBySymbol };
 }
 
-/** Resolve an NSE equity trading symbol to its Kite instrument_token, refreshing the cached master list once a day. */
+/**
+ * Resolve an NSE equity trading symbol — or an index name such as "NIFTY 50" —
+ * to its Kite instrument_token, refreshing the cached master list once a day.
+ */
 export async function getInstrumentToken(token, symbol) {
   if (Date.now() - instrumentCache.fetchedAt > INSTRUMENT_CACHE_TTL_MS || instrumentCache.bySymbol.size === 0) {
     await throttled(() => refreshInstruments(token));
   }
-  return instrumentCache.bySymbol.get(symbol) || null;
+  return instrumentCache.bySymbol.get(symbol) || instrumentCache.indexBySymbol.get(symbol) || null;
 }
 
 // ---------- F&O underlyings (from the NFO instrument master), cached ~20h ----------
@@ -487,6 +500,15 @@ export async function getFnoUnderlyings(token) {
   }
   // A stale list beats none: F&O membership changes a few times a year.
   return fnoCache.bySymbol.size ? fnoCache.bySymbol : null;
+}
+
+/**
+ * The exchange tick size for an NSE equity, from the cached instrument master:
+ * Kite rejects an order whose price is not a whole number of ticks. Null when
+ * the master has not been loaded (no Kite session) — callers fall back and say so.
+ */
+export function getTickSize(symbol) {
+  return instrumentCache.tickBySymbol?.get(symbol) ?? null;
 }
 
 /**

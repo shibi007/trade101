@@ -50,7 +50,7 @@ clamped to 0–100, is the score. Only setups scoring **40 or more** are shown.
 
 | Signal | Long / short condition | Points |
 |---|---|---|
-| Opening range breakout | Price beyond the first 15 minutes' high / low | +25 |
+| Opening range breakout | Price beyond the first 15 minutes' high / low: fresh (last 3 candles) · older | +25 · +10 |
 | VWAP with relative strength | Above VWAP and outperforming the market / below and underperforming | +20 |
 | 30-minute momentum | Move over the last 6 candles beyond ±0.3% | +15 |
 | Volume surge | Above 1.3× session average, credited to the side of the relative move | +15 |
@@ -98,8 +98,67 @@ comparable scales.
 
 ### 4. Trade plan
 
-Stop = 1.5 × ATR from entry; T1 = 1R, T2 = 2R. T2 is flagged when R1 / S1 sits in the way. No plan is
-produced when ATR is unavailable.
+- **Stop (tight by default):** just beyond the nearest level that proves the setup wrong, i.e. back inside the
+  opening range for a breakout, or back across VWAP, minus 0.25 ATR. It is held between **1 and 1.5 ATR**:
+  never wider than the old fixed 1.5 ATR, and never tighter than 1 ATR, where ordinary 5-minute noise would
+  take it out. With no structural level on the stop side, it is 1.5 ATR.
+- **Targets:** T1 = 1R, T2 = 2R. T2 is flagged when R1 / S1 sits in the way.
+- **Costs:** each pick shows estimated round-trip costs in R (`costR`). That is 0.12% of the position
+  (brokerage, STT, exchange charges, GST, stamp duty and a little slippage) as a share of the stop distance.
+  It's usually 0.15–0.3R, which is why a tighter stop stops helping.
+- No plan is produced when ATR is unavailable.
+
+### 5. Entry window
+
+New intraday trades are offered from **09:30** (once the opening range has formed) until the trader's cutoff,
+**10:30 by default** and capped at 14:45. The cutoff is set per browser and passed as `entryCutoff`. Outside
+the window, or on a weekend or configured holiday, the board still shows setups but greys them out and gives
+no order ticket.
+
+> The holiday list in `config/marketConfig.js` currently covers 2024 only. Until it is updated from NSE's
+> circular, holidays after 2024 are treated as trading days.
+
+### 6. Keeping losses small
+
+The loss on a trade is shares × stop distance, so **position size, not stop distance, caps it**. Every ticket
+sizes the quantity so that hitting the stop costs exactly the trader's **risk per trade** (0.5% of capital by
+default; 0.25–2% selectable). With **max trades per day** (2 by default), that fixes the worst normal day:
+2 × 0.5% = −1%. Both show on the board. A gap or circuit halt can still exit below a stop; no order type
+removes that.
+
+### 7. Order tickets
+
+Every pick shows exactly what to enter in Kite, with prices rounded to the stock's tick size from Kite's
+instrument master (₹0.05 offline, with a note):
+
+- **Intraday:** an `Intraday (MIS)` `Limit` entry, then the moment it fills an `SL-M` stop (or `SL` with a
+  limit just past the trigger). GTT does not support MIS, and bracket orders were discontinued in 2020.
+  Leaving a target order working beside the stop is **not** recommended when unattended: the two aren't linked,
+  so when one fills the other can open a new position. Unexited positions are squared off by the broker at
+  3:20 PM (Zerodha: ₹50 + GST per order).
+- **Swing (long):** a `Delivery (CNC)` buy, then a **GTT OCO** with the stop leg (limit 0.5% past the trigger)
+  and the T2 target. A GTT can't move the stop to breakeven at T1 or exit after 10 sessions; the card gives
+  the price and the date.
+- **Swing (short):** futures only (`NRML`), with a GTT OCO whose levels are shifted by the futures premium,
+  because a futures GTT triggers on the futures price. The card shows what one lot risks, and warns when a
+  single lot exceeds the risk-per-trade limit.
+
+### 8. Intraday backtester
+
+`server/services/intradayBacktest.js` replays the formula on real Kite **5-minute** history (20–100 days; Kite
+serves at most 100 days per request), the way a morning-only trader would take it:
+
+- At each candle close from 09:30 to the cutoff it sees only that day's candles so far plus daily history up
+  to the previous session.
+- It takes at most the daily trade limit, in rank order, and enters at the next candle's open.
+- Exits are at the stop, the target, or the 15:15 close. A candle touching both stop and target counts as a
+  stop, and a gap through the stop exits at the open.
+- Costs are charged on every trade.
+
+It compares six combinations: tight vs 1.5 ATR stops, each with **no target (hold to 15:15, the only
+unattended-safe setup)**, a 1R target, or a 2R target. On random data, gross results for the target variants
+sit at about 0R over 4,000 trades, which confirms there's no look-ahead. Order-book, spread and circuit signals
+have no history, so they aren't tested. Like the swing backtester, it refuses to run without Kite.
 
 ## 📊 Swing Trading
 
@@ -127,6 +186,10 @@ mirror image of every rule.
 A 52-week breakout is always also a 20-day one, so it *replaces* that trigger at the same weight rather than
 stacking on it — being at the high is already rewarded by the proximity factor. It is labelled separately so the
 backtester can show whether it outperforms.
+
+The swing board also shows the **market trend**: Nifty 50 against its 200-day average, from Kite's index history.
+A pick trading against it is flagged "against the market" but not penalised. Whether filtering on it helps is
+measured by the backtest's market-filter variant.
 
 A stock is a **pick** only with an entry trigger and a score of 50 or more. Strong stocks without a trigger go
 on the **watchlist**. Ties are broken as on the intraday board, never reordering unequal scores.
@@ -159,8 +222,9 @@ history. Execution is deliberately unflattering:
 - **0.3% round-trip cost** per trade (STT, charges and slippage on delivery).
 
 It reports win rate, expectancy (avg R), profit factor, total R, equity multiple at 1% risk per trade, max
-drawdown and holding time. These are shown for six variants (all setups, long only, 52-week breakouts only,
-20-day breakouts only, pullbacks only, score ≥ 70) next to equal-weight buy-and-hold, so the best entry style is chosen on
+drawdown and holding time. These are shown for seven variants (all setups, long only, 52-week breakouts only,
+20-day breakouts only, pullbacks only, score ≥ 70, and **with the market only**: longs while Nifty is above its
+200-day average, shorts while below) next to equal-weight buy-and-hold, so the best entry style is chosen on
 measured results. A variant needs 30+ trades to be called best.
 
 **It is validated in both directions:** on driftless random walks it finds no edge (expectancy ≈ −costs), and
@@ -270,6 +334,10 @@ npm test
 - `GET /api/insights/picks` - Picks only
 - `GET /api/insights/swing` - Swing picks, watchlist and the full scored universe (daily candles)
 - `GET /api/insights/swing/backtest?days=1095` - Replay the swing formula on Kite history (400–1900 days; requires Kite)
+- `GET /api/insights/intraday/backtest?days=60&entryCutoff=10:30&maxTrades=2` - Replay the intraday formula on
+  Kite 5-minute history (20–100 days; requires Kite)
+- `GET /api/insights?entryCutoff=10:30` - the intraday snapshot carries `entryWindow` (`BEFORE` / `OPEN` /
+  `CLOSED` / `MARKET_CLOSED`)
 - `GET /api/insights/source` - Whether data is live from Kite or simulated
 - Query: `limit` (max picks, 1–50), `pinned` (comma-separated symbols kept on the board regardless of score)
 

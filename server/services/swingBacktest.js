@@ -41,18 +41,18 @@ const RISK_PER_TRADE = 0.01;
  * results rather than preference. Each is a filter over the same signals.
  */
 export const VARIANTS = {
-  ALL: { label: 'All setups, both directions', keep: () => true },
-  LONG_ONLY: { label: 'Long only', keep: s => s.direction === 'LONG' },
-  BREAKOUTS: { label: '20-day breakouts and breakdowns only', keep: s => s.setup === 'BREAKOUT' || s.setup === 'BREAKDOWN' },
-  BREAKOUTS_52W: { label: '52-week breakouts and breakdowns only', keep: s => s.setup === 'BREAKOUT_52W' || s.setup === 'BREAKDOWN_52W' },
-  PULLBACKS: { label: 'Pullbacks and rallies only', keep: s => s.setup === 'PULLBACK' || s.setup === 'RALLY' },
+  // The board is long only, in shares (CNC), so every variant is too.
+  ALL: { label: 'All setups', keep: () => true },
+  BREAKOUTS: { label: '20-day breakouts only', keep: s => s.setup === 'BREAKOUT' },
+  BREAKOUTS_52W: { label: '52-week breakouts only', keep: s => s.setup === 'BREAKOUT_52W' },
+  PULLBACKS: { label: 'Pullbacks only', keep: s => s.setup === 'PULLBACK' },
   HIGH_SCORE: { label: 'Score 70 or more only', keep: s => s.score >= 70 },
-  // Longs only while Nifty is above its 200-day average, shorts only below.
-  // Needs index history; omitted from the results without it.
+  // Only while Nifty is above its 200-day average. Needs index history;
+  // omitted from the results without it.
   WITH_MARKET: {
-    label: 'With the market only (Nifty vs its 200-day average)',
+    label: 'Only while Nifty is above its 200-day average',
     needsRegime: true,
-    keep: (s, sig) => sig.regime != null && (s.direction === 'LONG' ? sig.regime === 'UP' : sig.regime === 'DOWN'),
+    keep: (s, sig) => sig.regime === 'UP',
   },
 };
 

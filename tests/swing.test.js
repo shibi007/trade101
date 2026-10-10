@@ -168,18 +168,30 @@ test('the same breakout on ordinary volume is not a trigger', () => {
   assert.ok(s.reasons.some(r => /unconfirmed/.test(r)));
 });
 
-test('long and short are scored by mirror-image rules', () => {
+test('long and short are scored by mirror-image rules when shorts are allowed', () => {
   // A price series and its reflection must score the same, on opposite sides.
   const up = breakoutSeries();
   const down = up.map(c => ({ ...c, open: 20000 / c.open, close: 20000 / c.close, high: 20000 / c.low, low: 20000 / c.high }));
   const su = swingIndicators(up), sd = swingIndicators(down);
-  const a = scoreSwing(su, 'X', buildSwingContext({ X: su }));
-  const b = scoreSwing(sd, 'X', buildSwingContext({ X: sd }));
+  const a = scoreSwing(su, 'X', buildSwingContext({ X: su }), { allowShort: true });
+  const b = scoreSwing(sd, 'X', buildSwingContext({ X: sd }), { allowShort: true });
   assert.equal(a.direction, 'LONG');
   assert.equal(b.direction, 'SHORT');
   assert.equal(a.setup, 'BREAKOUT_52W');
   assert.equal(b.setup, 'BREAKDOWN_52W');
   assert.equal(a.score, b.score);
+});
+
+test('swing is long-only by default: a breakdown is not offered as a short', () => {
+  // The user trades shares (CNC) only, and a share short cannot be held
+  // overnight, so the default scorer never produces a SHORT.
+  const up = breakoutSeries();
+  const down = up.map(c => ({ ...c, open: 20000 / c.open, close: 20000 / c.close, high: 20000 / c.low, low: 20000 / c.high }));
+  const sd = swingIndicators(down);
+  const s = scoreSwing(sd, 'X', buildSwingContext({ X: sd }));
+  assert.equal(s.direction, 'LONG');
+  assert.equal(s.setup, null, 'a downtrend has no long trigger');
+  assert.ok(s.score < 50);
 });
 
 test('relative strength rank is a percentile within the universe', () => {
@@ -247,8 +259,9 @@ test('backtest has no lookahead: future candles never change past signals', () =
 test('backtest finds no edge in a driftless random walk', () => {
   // With no edge in the data, a positive result means the code is cheating.
   // Pooled over several seeds, expectancy must sit near zero, minus costs.
+  // Long-only takes about half the trades of a two-sided run, hence 8 seeds.
   const rs = [];
-  for (const seed of [1, 2, 3, 4]) {
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
     const r = backtestSwing(walkUniverse(12, 700, seed * 7919), { tradeLimit: 0 });
     rs.push(...r.trades.filter(t => !t.open).map(t => t.r));
   }
@@ -300,7 +313,8 @@ test('the backtest reports 52-week and 20-day breakouts as separate variants', (
   assert.ok(r.variants.BREAKOUTS, '20-day variant present');
   const sigs = collectSignals(walkUniverse(6, 420, 3, k => (k % 2 ? 0.001 : -0.001)));
   const setups = new Set(sigs.map(x => x.scored.setup));
-  for (const s of setups) assert.ok(['BREAKOUT', 'BREAKDOWN', 'BREAKOUT_52W', 'BREAKDOWN_52W', 'PULLBACK', 'RALLY'].includes(s), s);
+  for (const s of setups) assert.ok(['BREAKOUT', 'BREAKOUT_52W', 'PULLBACK'].includes(s), s);
+  assert.ok(sigs.every(x => x.scored.direction === 'LONG'), 'the backtest replays the long-only formula');
 });
 
 test('the backtest needs enough history to say anything', () => {
@@ -318,7 +332,9 @@ test('offline swing insights are labelled simulated and every pick has a plan', 
     assert.notEqual(p.setup, 'WATCH');
     assert.ok(p.levels && p.levels.stopLoss > 0);
     assert.equal(p.real, false);
-    if (p.direction === 'SHORT') assert.equal(p.instrument, 'FUTURES', 'overnight shorts need futures');
+    assert.equal(p.direction, 'LONG', 'swing is buy-only');
+    assert.equal(p.instrument, 'CASH', 'swing is traded in shares (CNC), never futures');
+    assert.equal('lotSize' in p, false);
   }
   for (const w of r.watchlist) assert.equal(w.setup, 'WATCH');
 });
@@ -389,13 +405,13 @@ test('regimeByDay uses only closes up to each day', () => {
 test('the market-filter variant appears only with index history, and trades with the trend', () => {
   const uni = walkUniverse(6, 420, 7, k => (k % 2 ? 0.001 : -0.001));
   assert.equal(backtestSwing(uni).variants.WITH_MARKET, undefined);
-  // An index that rises throughout: only longs may pass the filter.
-  const idx = fromCloses(Array.from({ length: 420 }, (_, i) => 20000 * 1.0005 ** i), { start: '2021-01-04' });
+  // An index that falls throughout: every buy is against the market.
+  const idx = fromCloses(Array.from({ length: 420 }, (_, i) => 20000 * 0.9995 ** i), { start: '2021-01-04' });
   const r = backtestSwing(uni, { indexCandles: idx, tradeLimit: 0 });
   assert.ok(r.variants.WITH_MARKET);
   const sigs = collectSignals(uni);
   const regimes = regimeByDay(idx);
-  const shortsInUp = sigs.filter(s => s.scored.direction === 'SHORT' && regimes.get(s.day) === 'UP').length;
-  assert.ok(shortsInUp > 0, 'precondition: some shorts were against the market');
+  const buysInDown = sigs.filter(s => regimes.get(s.day) === 'DOWN').length;
+  assert.ok(buysInDown > 0, 'precondition: some buys were against the market');
   assert.ok(r.variants.WITH_MARKET.trades < r.variants.ALL.trades, 'the filter removes trades');
 });

@@ -4,7 +4,10 @@ import { backtestIntraday } from '../services/intradayBacktest.js';
 import { generateSwingInsights, fetchDailyCandles, MARKET_INDEX } from '../services/swingEngine.js';
 import { backtestSwing } from '../services/swingBacktest.js';
 import { getUniverseQuotes, isConnected, getFnoUnderlyings, getHistoricalCandles } from '../services/kiteService.js';
-import { parseCookies, SESSION_COOKIE } from '../services/authService.js';
+import { parseCookies, SESSION_COOKIE, getSession } from '../services/authService.js';
+import { audit } from '../services/auditLog.js';
+
+const userOf = req => getSession(parseCookies(req)[SESSION_COOKIE])?.username ?? null;
 
 const router = express.Router();
 
@@ -29,12 +32,18 @@ router.get('/', async (req, res) => {
     });
 
     const totalMs = Date.now() - startedAt;
-    if (totalMs > 10_000) {
-      console.warn(`⚠ /api/insights took ${totalMs}ms (quotes ${quotesMs}ms, ${insights.realDataCoverage} real) — slow enough to stall the UI`);
-    }
+    // Routine refreshes are `debug` (memory only, hidden by default); a slow
+    // one is a warning, since it is what makes the board look stuck.
+    audit({
+      level: totalMs > 10_000 ? 'warn' : 'debug', category: 'data', action: 'picks.refresh', user: userOf(req),
+      message: `Today's picks built in ${(totalMs / 1000).toFixed(1)} s — ${insights.picks.length} picks, ${insights.realDataCoverage} on real Kite data, ${insights.dataSource === 'KITE_LIVE' ? 'live quotes' : 'simulated quotes'}${totalMs > 10_000 ? ' (slow enough to stall the page)' : ''}`,
+      details: { totalMs, quotesMs, coverage: insights.realDataCoverage, picks: insights.picks.length, source: insights.dataSource },
+    });
     res.json(insights);
   } catch (err) {
     console.error(`✖ /api/insights failed after ${Date.now() - startedAt}ms (quotes ${quotesMs}ms):`, err);
+    audit({ level: 'error', category: 'data', action: 'picks.failed', user: userOf(req),
+      message: `Today's picks could not be built after ${((Date.now() - startedAt) / 1000).toFixed(1)} s: ${err.message}` });
     res.status(500).json({ error: err.message });
   }
 });
@@ -66,9 +75,19 @@ router.get('/swing', async (req, res) => {
     // Live quotes only check whether a plan from the last close is still valid;
     // signals come from completed daily candles either way.
     const liveQuotes = await getUniverseQuotes(token, UNIVERSE.map(s => s.symbol)).catch(() => null);
-    res.json(await generateSwingInsights(token, liveQuotes, { limit: req.query.limit }));
+    const out = await generateSwingInsights(token, liveQuotes, { limit: req.query.limit });
+    const t = out.timings || {};
+    const slow = t.totalMs > 20_000;
+    audit({
+      level: slow ? 'warn' : 'info', category: 'data', action: 'swing.refresh', user: userOf(req),
+      message: `Swing picks built in ${((t.totalMs || 0) / 1000).toFixed(1)} s — ${out.picks.length} picks, ${out.watchlist.length} on watch, ${out.realDataCoverage} on real Kite history` +
+        (slow ? ` (slow: F&O list ${(t.fnoListMs / 1000).toFixed(1)} s, daily history ${(t.dailyHistoryMs / 1000).toFixed(1)} s, Nifty ${(t.marketIndexMs / 1000).toFixed(1)} s)` : ''),
+      details: { ...t, coverage: out.realDataCoverage, picks: out.picks.length, watchlist: out.watchlist.length, regime: out.marketRegime?.state ?? null },
+    });
+    res.json(out);
   } catch (err) {
     console.error('✖ /api/insights/swing failed:', err);
+    audit({ level: 'error', category: 'data', action: 'swing.failed', user: userOf(req), message: `Swing picks could not be built: ${err.message}` });
     res.status(500).json({ error: err.message });
   }
 });
@@ -116,9 +135,13 @@ router.get('/swing/backtest', async (req, res) => {
       days, missing, marketIndexAvailable: Boolean(indexCandles?.length), computeMs: Date.now() - t0,
     };
     backtestCache.set(key, { at: Date.now(), result });
+    audit({ category: 'backtest', action: 'swing.backtest', user: userOf(req),
+      message: `Swing backtest over ${days} days: ${result.variants?.ALL?.trades ?? 0} trades, avg ${result.variants?.ALL?.avgR ?? '—'}R (${result.stocks ?? 0} stocks${missing.length ? `, no data for ${missing.join(', ')}` : ''})`,
+      details: { days, computeMs: result.computeMs, missing } });
     res.json(result);
   } catch (err) {
     console.error('✖ /api/insights/swing/backtest failed:', err);
+    audit({ level: 'error', category: 'backtest', action: 'swing.backtest_failed', user: userOf(req), message: `Swing backtest failed: ${err.message}` });
     res.status(500).json({ error: err.message });
   }
 });
@@ -173,9 +196,13 @@ router.get('/intraday/backtest', async (req, res) => {
       days, missing, computeMs: Date.now() - t0,
     };
     backtestCache.set(key, { at: Date.now(), result });
+    audit({ category: 'backtest', action: 'intraday.backtest', user: userOf(req),
+      message: `Intraday backtest over ${days} days (entries to ${entryCutoff}, ≤${maxTradesPerDay}/day): ${result.signals ?? 0} trades, unattended-safe avg ${result.variants?.TIGHT_STOP_ONLY?.avgR ?? '—'}R`,
+      details: { days, entryCutoff, maxTradesPerDay, computeMs: result.computeMs, missing } });
     res.json(result);
   } catch (err) {
     console.error('✖ /api/insights/intraday/backtest failed:', err);
+    audit({ level: 'error', category: 'backtest', action: 'intraday.backtest_failed', user: userOf(req), message: `Intraday backtest failed: ${err.message}` });
     res.status(500).json({ error: err.message });
   }
 });

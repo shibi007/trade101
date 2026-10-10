@@ -3,6 +3,7 @@ import {
   createUser, isAdmin, getTotpSecret, enable2fa, disable2fa, verifyTotp, verifyUser,
   loadUsers, deleteUser, parseCookies, getSession, SESSION_COOKIE,
 } from '../services/authService.js';
+import { audit } from '../services/auditLog.js';
 
 const router = express.Router();
 
@@ -27,6 +28,8 @@ router.post('/users', requireAdmin, async (req, res) => {
   }
   try {
     const result = await createUser(username, password, false);
+    audit({ category: 'admin', action: result.created ? 'user.created' : 'user.password_reset', user: getUsername(req),
+      message: `${result.created ? 'Created user' : 'Reset password for'} ${result.username}`, details: { target: result.username } });
     res.json({ success: true, user: result });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -57,6 +60,7 @@ router.post('/users/:username/delete', requireAdmin, async (req, res) => {
   }
   try {
     if (!(await deleteUser(username))) return res.status(404).json({ error: `User not found: ${username}` });
+    audit({ level: 'warn', category: 'admin', action: 'user.deleted', user: admin, message: `Deleted user ${username}`, details: { target: username } });
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -68,6 +72,7 @@ router.post('/2fa/enable', async (req, res) => {
   const username = getUsername(req);
   try {
     const result = await enable2fa(username);
+    audit({ category: 'auth', action: '2fa.enabled', user: username, message: 'Two-factor authentication set up' });
     res.json({
       success: true,
       secret: result.secret,
@@ -111,9 +116,11 @@ router.post('/2fa/disable', async (req, res) => {
     // Verified here, not trusted from the client: a stolen session cookie must
     // not be enough to strip a second factor off the account.
     if (!username || !verifyUser(username, currentPassword)) {
+      audit({ level: 'warn', category: 'auth', action: '2fa.disable_refused', user: username, message: 'Attempt to turn off 2FA with a wrong password' });
       return res.status(403).json({ error: 'Current password is incorrect' });
     }
     await disable2fa(username);
+    audit({ level: 'warn', category: 'auth', action: '2fa.disabled', user: username, message: 'Two-factor authentication turned off' });
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: err.message });

@@ -384,6 +384,111 @@ export async function getInstrumentToken(token, symbol) {
   return instrumentCache.bySymbol.get(symbol) || null;
 }
 
+// ---------- F&O underlyings (from the NFO instrument master), cached ~20h ----------
+
+/**
+ * Split one CSV line, honouring double-quoted fields. Kite quotes the `name`
+ * column, and while the NFO names are plain symbols, splitting on bare commas
+ * would silently misalign every column after a name that ever contained one.
+ */
+function splitCsvLine(line) {
+  const out = [];
+  let cur = '', quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (quoted && line[i + 1] === '"') { cur += '"'; i++; } else quoted = !quoted;
+    } else if (ch === ',' && !quoted) {
+      out.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * Parse Kite's NFO instrument dump into the stocks that have derivatives.
+ *
+ * A stock is in F&O if it has a stock future: every F&O stock lists futures
+ * alongside its options, so futures are the clean test. `name` on an NFO row is
+ * the underlying's NSE symbol (RELIANCE, M&M), which is what the universe uses.
+ *
+ * Lot size is taken from the nearest expiry. Exchanges revise lots
+ * periodically and the change lands on a new expiry first; the near month is
+ * the contract actually being traded intraday.
+ *
+ * Returns Map<symbol, { lotSize, expiry }>. Pure, so it is testable offline.
+ */
+export function parseFnoInstruments(csv) {
+  const lines = String(csv || '').split('\n');
+  const header = splitCsvLine(lines[0] || '').map(h => h.trim());
+  const col = name => header.indexOf(name);
+  const idx = {
+    name: col('name'), expiry: col('expiry'), lot: col('lot_size'),
+    type: col('instrument_type'), segment: col('segment'),
+  };
+  if (Object.values(idx).some(i => i < 0)) return new Map();
+
+  const out = new Map();
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const cols = splitCsvLine(lines[i].replace(/\r$/, ''));
+    if (cols[idx.type] !== 'FUT' || cols[idx.segment] !== 'NFO-FUT') continue;
+    const symbol = cols[idx.name].trim();
+    const expiry = cols[idx.expiry];
+    const lotSize = Number(cols[idx.lot]);
+    if (!symbol || !expiry || !(lotSize > 0)) continue;
+    const prev = out.get(symbol);
+    if (!prev || expiry < prev.expiry) out.set(symbol, { lotSize, expiry });
+  }
+  return out;
+}
+
+let fnoCache = { fetchedAt: 0, bySymbol: new Map() };
+// After a failed download, wait before trying again. Without this, every
+// insights poll during an NFO outage would block on a 20-second timeout.
+let fnoFailedAt = 0;
+const FNO_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+
+async function refreshFno(token) {
+  const kite = getKiteSession(token);
+  if (!kite?.accessToken) throw new Error('Not connected to Kite');
+  const res = await fetchWithTimeout(`${KITE_BASE}/instruments/NFO`, {
+    headers: {
+      'X-Kite-Version': KITE_VERSION,
+      Authorization: `token ${kite.apiKey}:${kite.accessToken}`,
+    },
+  }, 20000);
+  if (!res.ok) throw new Error(`Failed to fetch NFO instrument list (HTTP ${res.status})`);
+  const bySymbol = parseFnoInstruments(await res.text());
+  // An empty parse means the format changed or the download was truncated, not
+  // that F&O was abolished. Caching it would drop every stock from the board
+  // for twenty hours; refuse it so callers fall back instead.
+  if (bySymbol.size === 0) throw new Error('NFO instrument list parsed to zero underlyings');
+  fnoCache = { fetchedAt: Date.now(), bySymbol };
+}
+
+/**
+ * Stocks with exchange-traded futures and options, with their lot sizes.
+ * Map<symbol, { lotSize, expiry }>, or null when Kite is unavailable — callers
+ * must treat null as "unknown", never as "nothing is in F&O".
+ */
+export async function getFnoUnderlyings(token) {
+  const stale = Date.now() - fnoCache.fetchedAt > INSTRUMENT_CACHE_TTL_MS || fnoCache.bySymbol.size === 0;
+  const backingOff = Date.now() - fnoFailedAt < FNO_RETRY_BACKOFF_MS;
+  if (stale && !backingOff) {
+    try {
+      await throttled(() => refreshFno(token));
+    } catch {
+      fnoFailedAt = Date.now();
+    }
+  }
+  // A stale list beats none: F&O membership changes a few times a year.
+  return fnoCache.bySymbol.size ? fnoCache.bySymbol : null;
+}
+
 /**
  * Every NSE equity trading symbol Kite knows about (~2000).
  *

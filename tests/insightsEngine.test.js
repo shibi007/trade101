@@ -8,10 +8,13 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_PICK_LIMIT,
+  EDGE_BOUND,
   UNIVERSE,
   buildPick,
   buildUniverseContext,
   computeIndicators,
+  computeMACD,
+  maDistancePct,
   generateInsights,
   generateIntradaySeries,
   normalisePinned,
@@ -157,36 +160,70 @@ test('rankScore breaks ties that score alone cannot', () => {
   assert.ok(strong.rankScore > weak.rankScore, 'rankScore must separate them');
 });
 
-test('rankScore cannot bridge a genuine one-signal gap', () => {
-  // The smallest discrete signal is 10 points and the edge term is capped at
-  // ±7, so a stock with an extra signal must always outrank one without it.
-  // Both long with ORB + VWAP firing; only `extraSignal` is also near the day
-  // high (+10). `bestCase` gets the strongest possible edge term instead.
-  const ctx = context({ relStrength: { mean: 0, sd: 1 } });
-  const extraSignal = scoreStock(
-    ind({ changePct: 1.0, orbStatus: 'BREAKOUT_UP', rangePosition: 95 }), ctx);
-  const bestCase = scoreStock(
-    ind({ changePct: 5.0, orbStatus: 'BREAKOUT_UP', rangePosition: 50 }), ctx);
+/** Seeded random stocks spanning every signal, for property tests. */
+function randomUniverse(n, seed = 7) {
+  let s = seed;
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const pick = a => a[Math.floor(rnd() * a.length)];
+  return Array.from({ length: n }, () => {
+    const ltp = 100 + rnd() * 2000;
+    const hasMA = rnd() > 0.3;
+    const hasMACD = rnd() > 0.2;
+    return ind({
+      ltp, changePct: (rnd() - 0.5) * 8, momentum30m: (rnd() - 0.5) * 2,
+      relVolume: 0.5 + rnd() * 2.5, orbStatus: pick(['INSIDE', 'BREAKOUT_UP', 'BREAKOUT_DOWN']),
+      aboveVwap: rnd() > 0.5, gapPct: (rnd() - 0.5) * 3, rangePosition: rnd() * 100,
+      atrPct: 0.1 + rnd() * 1.5,
+      spreadPct: rnd() > 0.85 ? 0.3 : null,
+      sma20: hasMA ? ltp * (0.9 + rnd() * 0.2) : null,
+      sma50: hasMA ? ltp * (0.85 + rnd() * 0.3) : null,
+      macd: hasMACD ? {
+        histogram: (rnd() - 0.5) * 4, histogramPct: (rnd() - 0.5) * 0.3,
+        expanding: rnd() > 0.5, crossedRecently: rnd() > 0.8,
+      } : null,
+      macdTimeframe: hasMACD ? pick(['5m', '1d']) : null,
+    });
+  });
+}
 
-  assert.equal(extraSignal.score - bestCase.score, 10, 'precondition: exactly one more signal');
-  assert.ok(
-    extraSignal.rankScore > bestCase.rankScore,
-    'a real signal advantage must survive the edge term',
-  );
+test('rankScore never ranks a higher score below a lower one', () => {
+  // The edge exists to order ties, nothing more. An earlier ±7 bound broke
+  // this: two stocks 10 apart swapped on opposite 7-point edges, and a random
+  // universe produced hundreds of inverted pairs. Checked exhaustively over
+  // every pair rather than one hand-picked case, which is how that bug passed.
+  const stocks = randomUniverse(300);
+  const ctx = buildUniverseContext(stocks);
+  const scored = stocks.map(i => scoreStock(i, ctx));
+
+  let inversions = 0;
+  for (const a of scored) {
+    for (const b of scored) {
+      if (a.score > b.score && a.rankScore <= b.rankScore) inversions++;
+    }
+  }
+  assert.equal(inversions, 0);
 });
 
-test('rankScore stays within 0-100', () => {
-  const ctx = context({ relStrength: { mean: 0, sd: 0.5 } });
-  const maxed = scoreStock(ind({
-    changePct: 10, orbStatus: 'BREAKOUT_UP', aboveVwap: true, momentum30m: 5,
-    relVolume: 3, gapPct: 2, rangePosition: 99, ltp: 1000, sma20: 900, sma50: 800,
-  }), ctx);
-  const floored = scoreStock(ind({
-    changePct: -10, spreadPct: 5, circuitHeadroomPct: 0.1, atrPct: 99,
-  }), ctx);
+test('rankScore stays within EDGE_BOUND of the score, including at 0 and 100', () => {
+  const stocks = randomUniverse(300, 11);
+  const ctx = buildUniverseContext(stocks);
+  for (const i of stocks) {
+    const s = scoreStock(i, ctx);
+    assert.ok(Math.abs(s.rankScore - s.score) <= EDGE_BOUND + 1e-9,
+      `score ${s.score} rank ${s.rankScore}`);
+  }
+  assert.ok(EDGE_BOUND < 0.5, 'two opposite edges must shift a pair by under one point');
+});
 
-  assert.ok(maxed.rankScore <= 100, `got ${maxed.rankScore}`);
-  assert.ok(floored.rankScore >= 0, `got ${floored.rankScore}`);
+test('rankScore still breaks ties among stocks pinned at 0', () => {
+  // A clamp to 0-100 would flatten every floored stock to exactly 0.
+  const ctx = context({ relStrength: { mean: 0, sd: 1 } });
+  const bad = { spreadPct: 5, circuitHeadroomPct: 0.1 };
+  const a = scoreStock(ind({ ...bad, changePct: 3 }), ctx);
+  const b = scoreStock(ind({ ...bad, changePct: -3 }), ctx);
+  assert.equal(a.score, 0);
+  assert.equal(b.score, 0);
+  assert.notEqual(a.rankScore, b.rankScore);
 });
 
 // ---------- volatility gating ----------
@@ -471,4 +508,161 @@ test('stop distance stays proportional to the stock', () => {
       assert.ok(stopPct < 5, `${p.symbol} stop is ${stopPct.toFixed(2)}% of price`);
     }
   });
+});
+
+// ---------- MACD ----------
+
+/** Wavy, gently rising series: long enough for several crossovers. */
+const wave = n => Array.from({ length: n }, (_, i) => 100 + 5 * Math.sin(i / 6) + i * 0.05);
+
+test('MACD matches an independent reference implementation', () => {
+  // Expected values from a separate Python implementation of TradingView's
+  // ta.ema / ta.macd (SMA-seeded EMA), so a seeding or alignment error here
+  // cannot hide by agreeing with itself.
+  const m = computeMACD(wave(80));
+  assert.equal(m.macd, 0.8842);
+  assert.equal(m.signal, -0.0075);
+  assert.equal(m.histogram, 0.8917);
+});
+
+test('MACD is null until the signal line has warmed up', () => {
+  // slow (26) + signal (9) - 1 = 34 closes for the first signal value.
+  assert.equal(computeMACD(wave(33)), null);
+  assert.notEqual(computeMACD(wave(34)), null);
+  assert.equal(computeMACD([]), null);
+  assert.equal(computeMACD(null), null);
+});
+
+test('histogramPct makes MACD comparable across price levels', () => {
+  // The same shape at 10x the price has 10x the rupee histogram but the same
+  // percentage one — which is what ranking a universe needs.
+  const cheap = computeMACD(wave(80));
+  const dear = computeMACD(wave(80).map(c => c * 10));
+  assert.ok(Math.abs(dear.histogram / cheap.histogram - 10) < 0.01);
+  assert.equal(dear.histogramPct, cheap.histogramPct);
+});
+
+test('crossedRecently flags a crossover only while it is fresh', () => {
+  const closes = wave(120);
+  // Find a bar where the histogram changes sign, using the function itself on
+  // successive prefixes, then check freshness on either side of it.
+  let crossAt = null;
+  for (let n = 40; n < closes.length; n++) {
+    const prev = computeMACD(closes.slice(0, n - 1));
+    const cur = computeMACD(closes.slice(0, n));
+    if (Math.sign(prev.histogram) !== Math.sign(cur.histogram)) { crossAt = n; break; }
+  }
+  assert.ok(crossAt, 'precondition: the series crosses');
+  assert.equal(computeMACD(closes.slice(0, crossAt)).crossedRecently, true, 'on the crossing bar');
+  assert.equal(computeMACD(closes.slice(0, crossAt + 1)).crossedRecently, true, 'one bar later');
+  assert.equal(computeMACD(closes.slice(0, crossAt + 5)).crossedRecently, false, 'five bars later');
+});
+
+test('expanding tracks whether the histogram is widening', () => {
+  // A steadily accelerating rise widens a positive histogram.
+  const accel = Array.from({ length: 60 }, (_, i) => 100 + 0.002 * i * i * i);
+  assert.equal(computeMACD(accel).expanding, true);
+});
+
+test('MACD scoring weights a fresh cross over a building trend over a fading one', () => {
+  const base = { histogram: 1, histogramPct: 0.05 };
+  const score = macd => scoreStock(ind({ macd: { ...base, ...macd }, macdTimeframe: '5m' }));
+  const fresh = score({ crossedRecently: true, expanding: true });
+  const building = score({ crossedRecently: false, expanding: true });
+  const fading = score({ crossedRecently: false, expanding: false });
+
+  const pts = s => s.breakdown.find(b => b.label.includes('MACD')).points;
+  assert.equal(pts(fresh), 15);
+  assert.equal(pts(building), 10);
+  assert.equal(pts(fading), 5);
+  for (const s of [fresh, building, fading]) assert.equal(s.direction, 'LONG');
+});
+
+test('a bearish MACD supports the short side', () => {
+  const s = scoreStock(ind({
+    aboveVwap: false,
+    macd: { histogram: -1, histogramPct: -0.05, crossedRecently: true, expanding: true },
+    macdTimeframe: '5m',
+  }));
+  const macd = s.breakdown.find(b => b.label.includes('MACD'));
+  assert.equal(macd.side, 'SHORT');
+  assert.match(macd.label, /bearish/);
+});
+
+test('MACD reason names its timeframe', () => {
+  const m = { histogram: 1, histogramPct: 0.05, crossedRecently: true, expanding: true };
+  const daily = scoreStock(ind({ macd: m, macdTimeframe: '1d' }));
+  const intraday = scoreStock(ind({ macd: m, macdTimeframe: '5m' }));
+  assert.ok(daily.reasons.some(r => r.includes('daily MACD')));
+  assert.ok(intraday.reasons.some(r => r.includes('5-min MACD')));
+});
+
+test('missing MACD scores nothing rather than counting against the stock', () => {
+  const without = scoreStock(ind({ macd: null }));
+  assert.ok(!without.reasons.some(r => r.includes('MACD')));
+});
+
+test('indicators use 5-minute MACD once warmed up, daily before that', () => {
+  const candlesFrom = closes => closes.map((c, t) => ({ t, open: c, high: c + 0.5, low: c - 0.5, close: c, volume: 1000 }));
+  const daily = computeMACD(wave(200));
+
+  const early = computeIndicators({ prevClose: 100, open: 100, candles: candlesFrom(wave(10)), macdDaily: daily });
+  assert.equal(early.macdTimeframe, '1d');
+  assert.equal(early.macd, daily);
+
+  const late = computeIndicators({ prevClose: 100, open: 100, candles: candlesFrom(wave(40)), macdDaily: daily });
+  assert.equal(late.macdTimeframe, '5m');
+
+  const none = computeIndicators({ prevClose: 100, open: 100, candles: candlesFrom(wave(10)) });
+  assert.equal(none.macd, null);
+  assert.equal(none.macdTimeframe, null);
+});
+
+test('universe MACD stats are kept per timeframe', () => {
+  const tf = (h, t) => ind({ macd: { histogramPct: h }, macdTimeframe: t });
+  const ctx = buildUniverseContext([tf(0.01, '5m'), tf(0.03, '5m'), tf(2, '1d'), tf(4, '1d')]);
+  assert.equal(ctx.macd['5m'].mean, 0.02);
+  assert.equal(ctx.macd['1d'].mean, 3);
+});
+
+// ---------- moving averages ----------
+
+test('maDistancePct is signed distance from the 50-day average', () => {
+  assert.equal(maDistancePct(ind({ ltp: 110, sma50: 100 })), 10);
+  assert.equal(maDistancePct(ind({ ltp: 95, sma50: 100 })), -5);
+  assert.equal(maDistancePct(ind({ ltp: 110, sma50: null })), null);
+  assert.equal(maDistancePct(ind({ ltp: 110, sma50: 0 })), null);
+});
+
+test('MA structure is graded: a full stack outweighs a lone MA20 cross', () => {
+  const ma = (ltp, sma20, sma50) => {
+    const s = scoreStock(ind({ ltp, sma20, sma50 }));
+    return s.breakdown.find(b => /MA20/.test(b.label));
+  };
+  const up = ma(110, 105, 100);       // price > MA20 > MA50
+  const down = ma(90, 95, 100);       // price < MA20 < MA50
+  const turning = ma(100, 98, 102);   // above MA20, MA20 still under MA50
+  const pullback = ma(100, 102, 98);  // below MA20, MA20 still over MA50
+
+  assert.deepEqual([up.points, up.side], [12, 'LONG']);
+  assert.deepEqual([down.points, down.side], [12, 'SHORT']);
+  assert.deepEqual([turning.points, turning.side], [6, 'LONG']);
+  assert.deepEqual([pullback.points, pullback.side], [6, 'SHORT']);
+});
+
+test('MA scoring needs both averages', () => {
+  const s = scoreStock(ind({ ltp: 110, sma20: 105, sma50: null }));
+  assert.ok(!s.reasons.some(r => /MA20|MA50/.test(r)));
+});
+
+test('a stretched uptrend outranks a marginal one on an otherwise tied score', () => {
+  const ctx = buildUniverseContext([
+    ind({ ltp: 120, sma20: 110, sma50: 100 }),
+    ind({ ltp: 101, sma20: 100.5, sma50: 100 }),
+    ind({ ltp: 100, sma50: 100 }),
+  ]);
+  const strong = scoreStock(ind({ ltp: 120, sma20: 110, sma50: 100 }), ctx);
+  const marginal = scoreStock(ind({ ltp: 101, sma20: 100.5, sma50: 100 }), ctx);
+  assert.equal(strong.score, marginal.score, 'precondition: same discrete score');
+  assert.ok(strong.rankScore > marginal.rankScore);
 });

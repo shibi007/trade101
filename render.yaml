@@ -16,3 +16,19 @@ services:
         sync: false # set in the Render dashboard
       - key: ADMIN_PASSWORD
         sync: false # set in the Render dashboard — used only to bootstrap your login
+      # The free plan erases the disk on every deploy and restart. A database
+      # keeps logins, 2FA and saved Kite keys: paste a free Neon connection
+      # string here (README, "Keeping data across deploys"). Optional — without
+      # it the app runs as before and warns that saved data will not last.
+      - key: DATABASE_URL
+        sync: false
+      # Encrypts what is stored in the database. Generated once by Render and
+      # kept; changing or losing it makes stored data unreadable.
+      - key: DATA_ENCRYPTION_KEY
+        generateValue: true
+      # Alternative to a database for the Kite keys alone: environment values
+      # survive every deploy. Leave unset if you save the keys in the app.
+      - key: KITE_API_KEY
+        sync: false
+      - key: KITE_API_SECRET
+        sync: false

@@ -1889,9 +1889,34 @@ function renderKiteForm() {
   $('#kite-cancel-edit').style.display = kiteEditing ? 'inline-block' : 'none';
   $('#kite-forget').style.display = st.persisted ? 'inline-block' : 'none';
 
-  $('#kite-storage-note').innerHTML = st.persisted
-    ? 'Saved on this server, so they survive a restart. Stored in plain text in <code>data/kite.json</code> (gitignored) — anyone who can read that file can read your API secret.'
-    : 'Ticked, credentials are written to <code>data/kite.json</code> on this server so you do not re-enter them after a restart. Unticked, they live in memory only and are lost when the server stops.';
+  $('#kite-storage-note').innerHTML = kiteStorageNote(st);
+}
+
+/**
+ * Where the keys live and whether they survive the next deploy — stated from
+ * the server's actual storage, not assumed. The old note promised "survive a
+ * restart" even on hosts that wipe their disk on every deploy and restart.
+ */
+function kiteStorageNote(st) {
+  const s = st.storage || {};
+  const fix = 'To keep them, set <code>DATABASE_URL</code> (a free Neon database) in your host\'s environment settings, or put the key and secret in <code>KITE_API_KEY</code> / <code>KITE_API_SECRET</code> there — see the README, "Keeping data across deploys".';
+  if (st.source === 'env') {
+    return 'Using the key and secret from this server\'s environment variables (<code>KITE_API_KEY</code> / <code>KITE_API_SECRET</code>). They survive deploys and restarts.';
+  }
+  if (st.persisted) {
+    if (s.backend === 'postgres') {
+      return `Saved in the database${s.encrypted ? ', encrypted' : ''}. They survive deploys and restarts.`;
+    }
+    return s.durable
+      ? 'Saved on this server in <code>data/kite.json</code> (gitignored, owner-only). Anyone who can read that file can read your API secret.'
+      : `<span class="neg">⚠ Saved on this server's disk, which this host erases on every deploy and restart — you will need to enter them again after each one.</span> ${fix}`;
+  }
+  if (s.backend === 'postgres') {
+    return 'Ticked, they are saved in the database' + (s.encrypted ? ', encrypted,' : '') + ' and survive deploys and restarts. Unticked, they last only for this login.';
+  }
+  return s.durable
+    ? 'Ticked, they are saved in <code>data/kite.json</code> on this server so you need not re-enter them after a restart. Unticked, they last only for this login.'
+    : `<span class="neg">⚠ This host erases its disk on every deploy and restart, so even ticked they will not survive one.</span> ${fix}`;
 }
 
 async function loadKiteStatus() {

@@ -111,12 +111,16 @@ mirror image of every rule.
 | Trend template ("Stage 2") | Price > MA50 > MA200, MA200 rising over a month · partial: price and MA50 above MA200 | +25 · +12 |
 | Relative strength rank | 3–12 month return vs the universe, latest quarter weighted 2×: top quarter · upper half | +20 · +10 |
 | Near 52-week high | Within 5% · within 15% | +15 · +8 |
-| **Entry trigger** | Close above the 20-day closing high on ≥1.5× 50-day volume, **or** pullback to within 3% of MA20 in an uptrend with RSI 40–55 | +20 |
+| **Entry trigger** | One of: **52-week breakout** (close above the prior year's high on ≥1.5× 50-day volume) · 20-day breakout (close above the 20-day closing high on ≥1.5× volume) · pullback to within 3% of MA20 in an uptrend with RSI 40–55 | +20 |
 | Daily MACD | Fresh crossover · momentum building | +10 · +5 |
 | Range tightening | 10-day true range < 75% of the 50-day | +10 |
 | Extended | More than 8% above MA20 | −15 |
 | Overbought | RSI above 75 | −10 |
 | Unsuitable daily range | ATR% outside 0.4×–2.2× the universe median | −10 |
+
+A 52-week breakout is always also a 20-day one, so it *replaces* that trigger at the same weight rather than
+stacking on it — being at the high is already rewarded by the proximity factor. It is labelled separately so the
+backtester can show whether it outperforms.
 
 A stock is a **pick** only with an entry trigger and a score of 50 or more. Strong stocks without a trigger go
 on the **watchlist**. Ties are broken as on the intraday board, never reordering unequal scores.
@@ -128,8 +132,8 @@ traded, and can fail for years. That is what the backtester is for.
 
 ### Trade plan
 
-- **Stop** where the setup is proven wrong: back below the breakout level (minus 0.5 ATR), or below the last
-  10 days' low (minus 0.25 ATR) for a pullback. It is then held between 1 and 3 daily ATRs.
+- **Stop** where the setup is proven wrong: back below the breakout level (the old 52-week high or the 20-day
+  high, minus 0.5 ATR), or below the last 10 days' low (minus 0.25 ATR) for a pullback. It is then held between 1 and 3 daily ATRs.
 - **Targets** at 2R and 3R. T2 is flagged when the 52-week high or low sits in the way.
 - **Time stop:** exit after 10 sessions if neither is reached.
 - Levels are fixed at the signal close. During market hours a live price marks a plan **STOPPED** or
@@ -149,8 +153,8 @@ history. Execution is deliberately unflattering:
 - **0.3% round-trip cost** per trade (STT, charges and slippage on delivery).
 
 It reports win rate, expectancy (avg R), profit factor, total R, equity multiple at 1% risk per trade, max
-drawdown and holding time. These are shown for five variants (all setups, long only, breakouts only,
-pullbacks only, score ≥ 70) next to equal-weight buy-and-hold, so the best entry style is chosen on
+drawdown and holding time. These are shown for six variants (all setups, long only, 52-week breakouts only,
+20-day breakouts only, pullbacks only, score ≥ 70) next to equal-weight buy-and-hold, so the best entry style is chosen on
 measured results. A variant needs 30+ trades to be called best.
 
 **It is validated in both directions:** on driftless random walks it finds no edge (expectancy ≈ −costs), and

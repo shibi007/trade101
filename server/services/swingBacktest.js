@@ -43,7 +43,8 @@ const RISK_PER_TRADE = 0.01;
 export const VARIANTS = {
   ALL: { label: 'All setups, both directions', keep: () => true },
   LONG_ONLY: { label: 'Long only', keep: s => s.direction === 'LONG' },
-  BREAKOUTS: { label: 'Breakouts and breakdowns only', keep: s => s.setup === 'BREAKOUT' || s.setup === 'BREAKDOWN' },
+  BREAKOUTS: { label: '20-day breakouts and breakdowns only', keep: s => s.setup === 'BREAKOUT' || s.setup === 'BREAKDOWN' },
+  BREAKOUTS_52W: { label: '52-week breakouts and breakdowns only', keep: s => s.setup === 'BREAKOUT_52W' || s.setup === 'BREAKDOWN_52W' },
   PULLBACKS: { label: 'Pullbacks and rallies only', keep: s => s.setup === 'PULLBACK' || s.setup === 'RALLY' },
   HIGH_SCORE: { label: 'Score 70 or more only', keep: s => s.score >= 70 },
 };

@@ -130,6 +130,12 @@ export function swingIndicators(candles) {
   const prior20 = candles.slice(-21, -1);
   const prior20High = Math.max(...prior20.map(c => c.close));
   const prior20Low = Math.min(...prior20.map(c => c.close));
+  // The prior year's extremes, excluding today, on intraday highs and lows —
+  // the same basis as the 52-week range shown on the card, so "a new 52-week
+  // high" here and there mean the same price.
+  const priorYear = candles.slice(-252, -1);
+  const prior52High = Math.max(...priorYear.map(c => c.high));
+  const prior52Low = Math.min(...priorYear.map(c => c.low));
 
   const volAvg50 = mean(candles.slice(-51, -1).map(c => c.volume));
   const volRatio = volAvg50 > 0 ? last.volume / volAvg50 : null;
@@ -154,6 +160,7 @@ export function swingIndicators(candles) {
     pctFromLow52: round2((close / low52 - 1) * 100),
     r3, r6, r9, r12, rsReturn,
     prior20High, prior20Low,
+    prior52High, prior52Low,
     volRatio: volRatio == null ? null : round2(volRatio),
     atr, atrPct: atr ? round2((atr / close) * 100) : null,
     contraction: Number.isFinite(contraction) ? round2(contraction) : null,
@@ -235,12 +242,24 @@ function scoreSide(si, rsPct, dir, ctx) {
 
   // 4. Entry trigger — the best one counts, they are alternatives.
   const brokeOut = long ? si.close > si.prior20High : si.close < si.prior20Low;
+  // A close beyond the whole prior year's range. Every such close is also a
+  // new 20-day extreme, so this replaces the 20-day trigger rather than adding
+  // to it, at the same weight: being at the high is already rewarded by the
+  // 52-week proximity factor, and scoring it twice would count one fact twice.
+  // It is kept as its own setup so the backtester can show whether it earns
+  // more than an ordinary 20-day breakout, rather than assuming it does.
+  const broke52 = long ? si.close > si.prior52High : si.close < si.prior52Low;
   const volumeConfirmed = si.volRatio != null && si.volRatio >= 1.5;
   const inTrend = above(si.close, si.sma50);
   const rsiZone = si.rsi != null && (long ? si.rsi >= 40 && si.rsi <= 55 : si.rsi >= 45 && si.rsi <= 60);
   const nearMA20 = si.distMA20Pct != null && Math.abs(si.distMA20Pct) <= 3;
   let setup = null;
-  if (brokeOut && volumeConfirmed) {
+  if (broke52 && volumeConfirmed) {
+    setup = long ? 'BREAKOUT_52W' : 'BREAKDOWN_52W';
+    add(long
+      ? `Breakout to a new 52-week high (above ₹${round2(si.prior52High)}) on ${si.volRatio}× average volume`
+      : `Breakdown to a new 52-week low (below ₹${round2(si.prior52Low)}) on ${si.volRatio}× average volume`, 20);
+  } else if (brokeOut && volumeConfirmed) {
     setup = long ? 'BREAKOUT' : 'BREAKDOWN';
     add(`${long ? 'Breakout to a new 20-day high' : 'Breakdown to a new 20-day low'} on ${si.volRatio}× average volume`, 20);
   } else if (inTrend && rsiZone && nearMA20) {
@@ -249,7 +268,8 @@ function scoreSide(si, rsPct, dir, ctx) {
              : `Rally to MA20 in a downtrend (RSI ${round2(si.rsi)})`, 20);
   } else if (brokeOut) {
     // A breakout nobody traded is often a false one; worth noting, not acting on.
-    add(`${long ? 'New 20-day high' : 'New 20-day low'} but volume only ${si.volRatio}× — unconfirmed`, 8);
+    const span = broke52 ? '52-week' : '20-day';
+    add(`New ${span} ${long ? 'high' : 'low'} but volume only ${si.volRatio}× — unconfirmed`, 8);
   }
 
   // 5. Daily MACD, kept small: it overlaps the relative-strength factor.
@@ -332,7 +352,10 @@ export function swingPlan(si, scored, entryPrice = si.close) {
   const long = scored.direction === 'LONG';
   const entry = entryPrice;
   let structuralStop;
-  if (scored.setup === 'BREAKOUT') structuralStop = si.prior20High - 0.5 * si.atr;
+  // A breakout is proven wrong by a close back inside the range it broke out of.
+  if (scored.setup === 'BREAKOUT_52W') structuralStop = si.prior52High - 0.5 * si.atr;
+  else if (scored.setup === 'BREAKDOWN_52W') structuralStop = si.prior52Low + 0.5 * si.atr;
+  else if (scored.setup === 'BREAKOUT') structuralStop = si.prior20High - 0.5 * si.atr;
   else if (scored.setup === 'BREAKDOWN') structuralStop = si.prior20Low + 0.5 * si.atr;
   else if (scored.setup === 'PULLBACK') structuralStop = si.swingLow10 - 0.25 * si.atr;
   else structuralStop = si.swingHigh10 + 0.25 * si.atr; // RALLY

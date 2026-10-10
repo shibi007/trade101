@@ -95,16 +95,71 @@ function breakoutSeries() {
   return fromCloses(closes, { volume: i => (i === 299 ? 3e6 : 1e6) });
 }
 
-test('a high-volume breakout in an uptrend is a long BREAKOUT pick', () => {
+test('a high-volume breakout above the prior year\'s high is a 52-week breakout', () => {
+  // The series rises all year, so the final jump clears every earlier high.
   const si = swingIndicators(breakoutSeries());
   const s = scoreSwing(si, 'X', buildSwingContext({ X: si }));
   assert.equal(s.direction, 'LONG');
-  assert.equal(s.setup, 'BREAKOUT');
+  assert.equal(s.setup, 'BREAKOUT_52W');
+  assert.ok(si.close > si.prior52High);
   assert.ok(s.reasons.some(r => /Stage 2/.test(r)));
+  assert.ok(s.reasons.some(r => /new 52-week high/.test(r)));
+});
+
+/** A year-old peak at 160, a fall to 125, then a climb that breaks a 20-day high near 143. */
+function twentyDaySeries() {
+  const closes = [];
+  for (let i = 0; i < 300; i++) {
+    let c;
+    if (i < 50) c = 100 + i * 0.2;
+    else if (i < 110) c = 110 + (i - 50) * (50 / 60);
+    else if (i < 150) c = 160 - (i - 110) * (35 / 40);
+    else c = 125 + (i - 150) * (15 / 149);
+    closes.push(c + Math.sin(i / 2) * 0.6);
+  }
+  closes[299] = closes[298] * 1.025;
+  return fromCloses(closes, { volume: i => (i === 299 ? 3e6 : 1e6) });
+}
+
+test('a 20-day breakout still below the 52-week high stays an ordinary breakout', () => {
+  const si = swingIndicators(twentyDaySeries());
+  const s = scoreSwing(si, 'X', buildSwingContext({ X: si }));
+  assert.ok(si.close > si.prior20High && si.close < si.prior52High, 'precondition');
+  assert.equal(s.setup, 'BREAKOUT');
+});
+
+test('a 52-week breakout replaces the 20-day trigger instead of stacking on it', () => {
+  // Both setups must carry exactly one trigger worth 20 — being at the high is
+  // already rewarded by the proximity factor, so it must not count twice.
+  for (const candles of [breakoutSeries(), twentyDaySeries()]) {
+    const si = swingIndicators(candles);
+    const s = scoreSwing(si, 'X', buildSwingContext({ X: si }));
+    const triggers = s.breakdown.filter(b => /Breakout to a new/.test(b.label));
+    assert.equal(triggers.length, 1, s.setup);
+    assert.equal(triggers[0].points, 20);
+  }
+});
+
+test('a 52-week breakout stop sits back below the old 52-week high', () => {
+  const si = swingIndicators(breakoutSeries());
+  const s = scoreSwing(si, 'X', buildSwingContext({ X: si }));
+  const plan = swingPlan(si, s);
+  const structural = si.prior52High - 0.5 * si.atr;
+  const expected = Math.max(si.close - 3 * si.atr, Math.min(si.close - si.atr, structural));
+  assert.ok(Math.abs(plan.stopLoss - expected) <= 0.01, `stop ${plan.stopLoss} vs ${expected}`);
+});
+
+test('a 52-week high on light volume is noted but is not a trigger', () => {
+  const candles = breakoutSeries();
+  candles[candles.length - 1].volume = 1e6;
+  const si = swingIndicators(candles);
+  const s = scoreSwing(si, 'X', buildSwingContext({ X: si }));
+  assert.equal(s.setup, null);
+  assert.ok(s.reasons.some(r => /New 52-week high but volume only/.test(r)));
 });
 
 test('the same breakout on ordinary volume is not a trigger', () => {
-  const candles = breakoutSeries();
+  const candles = twentyDaySeries();
   candles[candles.length - 1].volume = 1e6;
   const si = swingIndicators(candles);
   const s = scoreSwing(si, 'X', buildSwingContext({ X: si }));
@@ -121,7 +176,8 @@ test('long and short are scored by mirror-image rules', () => {
   const b = scoreSwing(sd, 'X', buildSwingContext({ X: sd }));
   assert.equal(a.direction, 'LONG');
   assert.equal(b.direction, 'SHORT');
-  assert.equal(b.setup, 'BREAKDOWN');
+  assert.equal(a.setup, 'BREAKOUT_52W');
+  assert.equal(b.setup, 'BREAKDOWN_52W');
   assert.equal(a.score, b.score);
 });
 
@@ -235,6 +291,15 @@ test('summary statistics are computed correctly', () => {
   assert.equal(s.profitFactor, 2.5);
   assert.equal(s.worstLosingStreak, 2);
   assert.equal(s.equityMultiple, Math.round(1.03 * 0.99 * 0.99 * 1.02 * 100) / 100);
+});
+
+test('the backtest reports 52-week and 20-day breakouts as separate variants', () => {
+  const r = backtestSwing(walkUniverse(6, 420, 3, k => (k % 2 ? 0.001 : -0.001)));
+  assert.ok(r.variants.BREAKOUTS_52W, '52-week variant present');
+  assert.ok(r.variants.BREAKOUTS, '20-day variant present');
+  const sigs = collectSignals(walkUniverse(6, 420, 3, k => (k % 2 ? 0.001 : -0.001)));
+  const setups = new Set(sigs.map(x => x.scored.setup));
+  for (const s of setups) assert.ok(['BREAKOUT', 'BREAKDOWN', 'BREAKOUT_52W', 'BREAKDOWN_52W', 'PULLBACK', 'RALLY'].includes(s), s);
 });
 
 test('the backtest needs enough history to say anything', () => {

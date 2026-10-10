@@ -489,6 +489,10 @@ const GLOSSARY = {
     'The highest price of the past year. Stocks trading near it tend to keep rising (George & Hwang, 2004), partly because traders under-react to news that pushes a stock to a new high. It is also an obvious level where sellers wait, so a target beyond it is flagged.'],
   breakout: ['Breakout', null,
     'A close above the highest close of the previous 20 sessions, on at least 1.5× the 50-day average volume. The volume matters: a new high nobody traded is often a false one. Stop goes back below the breakout level.'],
+  breakout_52w: ['52-week breakout', null,
+    'A close above the highest price of the previous year, on at least 1.5× the 50-day average volume. The strongest breakout: every seller who bought in the last year is now in profit, so there is no overhead supply waiting to sell. It replaces the 20-day trigger rather than adding to it, and the backtest shows separately whether it earns more. Stop goes back below the old 52-week high.'],
+  breakdown_52w: ['52-week breakdown', null,
+    'A close below the lowest price of the previous year on expanded volume — the short-side mirror of a 52-week breakout. Every buyer of the last year is now at a loss. Held through futures.'],
   pullback: ['Pullback buy', null,
     'A stock in an uptrend (above its 50-day average) that has dipped to within 3% of its 20-day average with RSI 40-55. It enters a strong trend at a discount instead of chasing it. Stop goes below the last 10 days\' low.'],
   breakdown: ['Breakdown', null,
@@ -719,7 +723,7 @@ const GUIDE = [
       <tr><td><strong>Trend template</strong><br><span class="muted">"Stage 2": price above MA50 above MA200, with MA200 rising over the last month. Half if price and MA50 are above MA200 but the trend is not confirmed.</span></td><td class="w plus">+25 / +12</td></tr>
       <tr><td><strong>Relative strength rank</strong><br><span class="muted">3-12 month return against the rest of the universe, latest quarter weighted double. Top quarter or upper half.</span></td><td class="w plus">+20 / +10</td></tr>
       <tr><td><strong>Near the 52-week high</strong><br><span class="muted">Within 5% of it, or within 15%.</span></td><td class="w plus">+15 / +8</td></tr>
-      <tr><td><strong>Entry trigger</strong><br><span class="muted">A breakout to a 20-day closing high on 1.5× volume, <em>or</em> a pullback to MA20 in an uptrend with RSI 40-55. A new high on light volume scores 8 and is not a trigger.</span></td><td class="w plus">+20</td></tr>
+      <tr><td><strong>Entry trigger</strong><br><span class="muted">One of: a <strong>52-week breakout</strong> — a close above the prior year's high on 1.5× volume; a breakout to a 20-day closing high on 1.5× volume; or a pullback to MA20 in an uptrend with RSI 40-55. A 52-week breakout replaces the 20-day one rather than stacking on it. A new high on light volume scores 8 and is not a trigger.</span></td><td class="w plus">+20</td></tr>
       <tr><td><strong>Daily MACD</strong><br><span class="muted">Fresh crossover, or momentum still building. Kept small: it overlaps relative strength.</span></td><td class="w plus">+10 / +5</td></tr>
       <tr><td><strong>Range tightening</strong><br><span class="muted">10-day range under 75% of the 50-day — a stock coiling before it moves.</span></td><td class="w plus">+10</td></tr>
       <tr><td><strong>Extended from MA20</strong><br><span class="muted">More than 8% away — late, with a poor stop distance.</span></td><td class="w minus">−15</td></tr>
@@ -1324,6 +1328,7 @@ let latestSwing = null;
 let swingInFlight = false;
 
 const SETUP_LABEL = {
+  BREAKOUT_52W: ['▲ 52-week breakout', 'long'], BREAKDOWN_52W: ['▼ 52-week breakdown', 'short'],
   BREAKOUT: ['▲ Breakout', 'long'], PULLBACK: ['↘ Pullback buy', 'long'],
   BREAKDOWN: ['▼ Breakdown', 'short'], RALLY: ['↗ Rally sell', 'short'], WATCH: ['Watch', 'info'],
 };

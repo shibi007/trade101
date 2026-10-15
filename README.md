@@ -31,8 +31,9 @@ education, not advice.
 
 ### 1. Universe: F&O stocks only
 
-Only stocks with exchange-traded futures and options are considered. F&O names are the most liquid on NSE,
-so entries and exits fill near the quoted price.
+Only stocks with exchange-traded futures and options are considered — as a **quality filter**, not a product.
+The exchange admits only large, liquid, stable stocks to F&O, so entries and exits fill near the quoted price.
+Every trade the app suggests is in **shares**: intraday (MIS) or delivery (CNC). No futures or options.
 
 - **Kite connected:** membership and lot size come from Kite's NFO instrument master, refreshed every
   ~20 hours. A stock counts as F&O if it has a stock future.
@@ -111,7 +112,7 @@ comparable scales.
 ### 5. Entry window
 
 New intraday trades are offered from **09:30** (once the opening range has formed) until the trader's cutoff,
-**10:30 by default** and capped at 14:45. The cutoff is set per browser and passed as `entryCutoff`. Outside
+**14:00 by default** and capped at 14:45. The cutoff is set per browser and passed as `entryCutoff`. Outside
 the window, or on a weekend or configured holiday, the board still shows setups but greys them out and gives
 no order ticket.
 
@@ -136,17 +137,14 @@ instrument master (₹0.05 offline, with a note):
   Leaving a target order working beside the stop is **not** recommended when unattended: the two aren't linked,
   so when one fills the other can open a new position. Unexited positions are squared off by the broker at
   3:20 PM (Zerodha: ₹50 + GST per order).
-- **Swing (long):** a `Delivery (CNC)` buy, then a **GTT OCO** with the stop leg (limit 0.5% past the trigger)
+- **Swing:** a `Delivery (CNC)` buy, then a **GTT OCO** with the stop leg (limit 0.5% past the trigger)
   and the T2 target. A GTT can't move the stop to breakeven at T1 or exit after 10 sessions; the card gives
   the price and the date.
-- **Swing (short):** futures only (`NRML`), with a GTT OCO whose levels are shifted by the futures premium,
-  because a futures GTT triggers on the futures price. The card shows what one lot risks, and warns when a
-  single lot exceeds the risk-per-trade limit.
 
 ### 8. Intraday backtester
 
 `server/services/intradayBacktest.js` replays the formula on real Kite **5-minute** history (20–100 days; Kite
-serves at most 100 days per request), the way a morning-only trader would take it:
+serves at most 100 days per request), the way a trader entering only until their cutoff would take it:
 
 - At each candle close from 09:30 to the cutoff it sees only that day's candles so far plus daily history up
   to the previous session.
@@ -163,15 +161,15 @@ have no history, so they aren't tested. Like the swing backtester, it refuses to
 ## 📊 Swing Trading
 
 The **Swing Picks** tab (`server/services/swingEngine.js`) finds multi-day setups, held for roughly 3–10
-sessions, in the same F&O universe. It scores **completed daily candles**: today's bar counts only after
+sessions, in the same F&O universe. Swing is **buy-only, in shares (CNC delivery)**: a share short
+cannot be held overnight in India, and futures and options are out of scope. It scores **completed daily candles**: today's bar counts only after
 15:45 IST, so a breakout that fades in the afternoon never triggers.
 
 ### The formula
 
-It is built from the factors with the strongest published evidence at the swing horizon. Shorts score the
-mirror image of every rule.
+It is built from the factors with the strongest published evidence at the swing horizon.
 
-| Factor | Condition (long) | Points |
+| Factor | Condition | Points |
 |---|---|---|
 | Trend template ("Stage 2") | Price > MA50 > MA200, MA200 rising over a month · partial: price and MA50 above MA200 | +25 · +12 |
 | Relative strength rank | 3–12 month return vs the universe, latest quarter weighted 2×: top quarter · upper half | +20 · +10 |
@@ -203,13 +201,11 @@ traded, and can fail for years. That is what the backtester is for.
 
 - **Stop** where the setup is proven wrong: back below the breakout level (the old 52-week high or the 20-day
   high, minus 0.5 ATR), or below the last 10 days' low (minus 0.25 ATR) for a pullback. It is then held between 1 and 3 daily ATRs.
-- **Targets** at 2R and 3R. T2 is flagged when the 52-week high or low sits in the way.
+- **Targets** at 2R and 3R. T2 is flagged when the 52-week high sits in the way.
 - **Time stop:** exit after 10 sessions if neither is reached.
 - Levels are fixed at the signal close. During market hours a live price marks a plan **STOPPED** or
   **MISSED** (past T1) and removes it from the board; otherwise sizing uses the live distance to the stop.
-- **Sizing:** cash at 1×, since intraday MIS leverage does not apply overnight. **Shorts can only be held
-  overnight through futures** (cash-market shorts must be squared off the same day), so SELL cards show what
-  one futures lot risks.
+- **Sizing:** delivery at 1×, since intraday MIS leverage does not apply overnight.
 
 ### Backtester
 
@@ -222,9 +218,9 @@ history. Execution is deliberately unflattering:
 - **0.3% round-trip cost** per trade (STT, charges and slippage on delivery).
 
 It reports win rate, expectancy (avg R), profit factor, total R, equity multiple at 1% risk per trade, max
-drawdown and holding time. These are shown for seven variants (all setups, long only, 52-week breakouts only,
-20-day breakouts only, pullbacks only, score ≥ 70, and **with the market only**: longs while Nifty is above its
-200-day average, shorts while below) next to equal-weight buy-and-hold, so the best entry style is chosen on
+drawdown and holding time. These are shown for six variants (all setups, 52-week breakouts only,
+20-day breakouts only, pullbacks only, score ≥ 70, and **with the market only**: buys only while Nifty is above
+its 200-day average) next to equal-weight buy-and-hold, so the best entry style is chosen on
 measured results. A variant needs 30+ trades to be called best.
 
 **It is validated in both directions:** on driftless random walks it finds no edge (expectancy ≈ −costs), and
@@ -367,9 +363,9 @@ npm test
 - `GET /api/insights/picks` - Picks only
 - `GET /api/insights/swing` - Swing picks, watchlist and the full scored universe (daily candles)
 - `GET /api/insights/swing/backtest?days=1095` - Replay the swing formula on Kite history (400–1900 days; requires Kite)
-- `GET /api/insights/intraday/backtest?days=60&entryCutoff=10:30&maxTrades=2` - Replay the intraday formula on
+- `GET /api/insights/intraday/backtest?days=60&entryCutoff=14:00&maxTrades=2` - Replay the intraday formula on
   Kite 5-minute history (20–100 days; requires Kite)
-- `GET /api/insights?entryCutoff=10:30` - the intraday snapshot carries `entryWindow` (`BEFORE` / `OPEN` /
+- `GET /api/insights?entryCutoff=14:00` - the intraday snapshot carries `entryWindow` (`BEFORE` / `OPEN` /
   `CLOSED` / `MARKET_CLOSED`)
 - `GET /api/insights/source` - Whether data is live from Kite or simulated
 - Query: `limit` (max picks, 1–50), `pinned` (comma-separated symbols kept on the board regardless of score)

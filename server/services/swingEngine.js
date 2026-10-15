@@ -30,10 +30,11 @@
  * they can fail for years. That is why the backtester below exists — to measure
  * the formula on real NSE prices for this universe rather than assert it.
  *
- * Shorts: Indian cash-market shorts must be squared off the same day, so a
- * multi-day short can only be held through futures. The universe is F&O-only,
- * so every SELL here is takeable — but only as a futures position, and the
- * picks say so.
+ * Long only, in shares (CNC delivery). A multi-day short can only be held
+ * through futures in India — cash shorts must be squared off the same day —
+ * and this trader does not trade F&O. The F&O list is used only to pick
+ * stable, liquid stocks. The short side is still scored by scoreSwing when
+ * asked (allowShort), so turning it back on later is one option, not a rewrite.
  */
 import {
   UNIVERSE, filterToFno, computeMACD,
@@ -300,16 +301,17 @@ function scoreSide(si, rsPct, dir, ctx) {
 }
 
 /**
- * Score a stock for a swing trade. Scores both sides and keeps the stronger.
- * `setup` is null when no entry trigger fired: such a stock may be trending
- * beautifully, but there is no defined place to get on, so it is a watchlist
- * candidate rather than a pick.
+ * Score a stock for a swing trade. Long only by default (see the header); with
+ * `allowShort` both sides are scored and the stronger kept. `setup` is null
+ * when no entry trigger fired: such a stock may be trending beautifully, but
+ * there is no defined place to get on, so it is a watchlist candidate rather
+ * than a pick.
  */
-export function scoreSwing(si, symbol, ctx) {
+export function scoreSwing(si, symbol, ctx, { allowShort = false } = {}) {
   const rsPct = ctx?.rsPercentile?.[symbol] ?? 0.5;
   const longSide = scoreSide(si, rsPct, 1, ctx);
-  const shortSide = scoreSide(si, rsPct, -1, ctx);
-  const chosen = longSide.points >= shortSide.points ? longSide : shortSide;
+  const shortSide = allowShort ? scoreSide(si, rsPct, -1, ctx) : null;
+  const chosen = !shortSide || longSide.points >= shortSide.points ? longSide : shortSide;
   const direction = chosen === longSide ? 'LONG' : 'SHORT';
   const score = Math.max(0, Math.min(100, chosen.points));
 
@@ -486,8 +488,15 @@ const DEFAULT_SWING_LIMIT = 5;
  * first target already reached means the moment has passed.
  */
 export async function generateSwingInsights(token, liveQuotes = null, options = {}) {
+  // Stage timings, reported with the result: when the tab is slow, they show
+  // whether the time went on the F&O list, Kite history, or the index.
+  const t0 = Date.now();
+  const timings = {};
+  const lap = name => { timings[name] = Date.now() - (lap.last ?? t0); lap.last = Date.now(); };
+
   const fnoMap = token ? await getFnoUnderlyings(token).catch(() => null) : null;
   const fno = filterToFno(UNIVERSE, fnoMap);
+  lap('fnoListMs');
 
   const rows = await Promise.all(fno.included.map(async stock => {
     const [real, events] = await Promise.all([
@@ -503,9 +512,11 @@ export async function generateSwingInsights(token, liveQuotes = null, options = 
     };
   }));
 
+  lap('dailyHistoryMs');
   // The market's own trend. Offline there is no index history, so the filter
   // is simply absent rather than guessed.
   const regime = token ? marketRegime(await fetchDailyCandles(token, MARKET_INDEX).catch(() => null)) : null;
+  lap('marketIndexMs');
 
   const usable = rows.filter(r => r.si);
   const ctx = buildSwingContext(Object.fromEntries(usable.map(r => [r.stock.symbol, r.si])));
@@ -546,11 +557,10 @@ export async function generateSwingInsights(token, liveQuotes = null, options = 
     symbol: r.stock.symbol,
     name: r.stock.name,
     sector: r.stock.sector,
-    lotSize: r.stock.lotSize ?? null,
     tickSize: getTickSize(r.stock.symbol),
     direction: r.scored.direction,
-    // A multi-day short is only possible in futures in India.
-    instrument: r.scored.direction === 'SHORT' ? 'FUTURES' : 'CASH_OR_FUTURES',
+    // Shares held in delivery — the only way this board is traded.
+    instrument: 'CASH',
     setup: r.scored.setup ?? 'WATCH',
     score: r.scored.score,
     rankScore: r.scored.rankScore,
@@ -596,12 +606,13 @@ export async function generateSwingInsights(token, liveQuotes = null, options = 
     dataSource: realCount > 0 ? 'KITE_LIVE' : 'SIMULATED',
     realDataCoverage: `${realCount}/${scoredRows.length}`,
     basis: 'Completed daily candles; today is included only after 15:45 IST.',
-    disclaimer: 'Algorithmic screening for educational purposes only. Not investment advice. Swing trades are held overnight and carry gap risk that a stop cannot prevent. Consult a SEBI-registered advisor before trading.',
+    disclaimer: 'Algorithmic screening for educational purposes only. Not investment advice. Swing trades are held overnight in delivery (CNC) and carry gap risk that a stop cannot prevent. Consult a SEBI-registered advisor before trading.',
     universeFilter: { rule: 'FNO_ONLY', source: fno.source, included: fno.included.length, excluded: fno.excluded },
     context: { medianAtrPct: ctx.medianAtrPct, atrBand: ctx.atrBand },
     marketRegime: regime,
     picks,
     watchlist,
     universe: scoredRows.sort(byRank).map(card),
+    timings: { ...timings, totalMs: Date.now() - t0 },
   };
 }

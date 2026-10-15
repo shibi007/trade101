@@ -15,6 +15,10 @@
 import crypto from 'crypto';
 import { getSession } from './authService.js';
 import { readDoc, writeDoc, storeStatus } from './store.js';
+import { audit } from './auditLog.js';
+
+const NOT_CONNECTED = 'Not connected to Kite';
+const userOf = token => getSession(token)?.username ?? null;
 
 const KITE_BASE = 'https://api.kite.trade';
 const KITE_VERSION = '3';
@@ -319,12 +323,25 @@ async function kiteGet(token, path) {
 
     const json = await res.json();
     if (!res.ok || json.status !== 'success') {
-      if (res.status === 403) disconnect(token);
-      throw new Error(json.message || `Kite API error (HTTP ${res.status})`);
+      const msg = json.message || `Kite API error (HTTP ${res.status})`;
+      if (res.status === 403) {
+        disconnect(token);
+        audit({ level: 'warn', category: 'kite', action: 'session.expired', user: userOf(token),
+          message: `Kite rejected the session and it was disconnected: ${msg}. Log in with Kite again (sessions end daily around 6 AM).` });
+      } else {
+        // The query string is dropped: it holds only dates and symbols, but
+        // the path alone is enough to tell which call failed.
+        audit({ level: res.status === 429 ? 'warn' : 'error', category: 'kite', action: res.status === 429 ? 'api.ratelimited' : 'api.error',
+          user: userOf(token), message: `Kite ${path.split('?')[0]} → HTTP ${res.status}: ${msg}`, details: { status: res.status } });
+      }
+      throw new Error(msg);
     }
     return json.data;
   } catch (err) {
     kite.lastError = err.message;
+    if (err.name === 'AbortError') {
+      audit({ level: 'warn', category: 'kite', action: 'api.timeout', user: userOf(token), message: `Kite ${path.split('?')[0]} did not answer within 8 s` });
+    }
     throw err;
   }
 }
@@ -454,6 +471,8 @@ async function refreshInstruments(token) {
     }
   }
   instrumentCache = { fetchedAt: Date.now(), bySymbol, tickBySymbol, indexBySymbol };
+  audit({ category: 'kite', action: 'instruments.loaded', user: userOf(token),
+    message: `Loaded Kite's NSE instrument list: ${bySymbol.size} equities, ${indexBySymbol.size} indices` });
 }
 
 /**
@@ -551,6 +570,7 @@ async function refreshFno(token) {
   // for twenty hours; refuse it so callers fall back instead.
   if (bySymbol.size === 0) throw new Error('NFO instrument list parsed to zero underlyings');
   fnoCache = { fetchedAt: Date.now(), bySymbol };
+  audit({ category: 'kite', action: 'fno.loaded', user: userOf(token), message: `Loaded the F&O list from Kite: ${bySymbol.size} underlyings` });
 }
 
 /**
@@ -564,8 +584,12 @@ export async function getFnoUnderlyings(token) {
   if (stale && !backingOff) {
     try {
       await throttled(() => refreshFno(token));
-    } catch {
+    } catch (err) {
       fnoFailedAt = Date.now();
+      if (err.message !== NOT_CONNECTED) {
+        audit({ level: 'warn', category: 'kite', action: 'fno.failed', user: userOf(token),
+          message: `Could not load the F&O list from Kite (${err.message}) — using the built-in list; retrying in 5 minutes` });
+      }
     }
   }
   // A stale list beats none: F&O membership changes a few times a year.
@@ -647,7 +671,11 @@ export async function getHistoricalCandles(token, symbol, interval, fromDate, to
 
   try {
     const instrumentToken = await getInstrumentToken(token, symbol);
-    if (!instrumentToken) return null;
+    if (!instrumentToken) {
+      audit({ level: 'warn', category: 'data', action: 'symbol.unknown', user: userOf(token),
+        message: `${symbol} is not in Kite's NSE instrument list — renamed or delisted? Using simulated data for it.`, details: { symbol } });
+      return null;
+    }
 
     const from = encodeURIComponent(formatKiteDate(fromDate));
     const to = encodeURIComponent(formatKiteDate(toDate));
@@ -660,6 +688,13 @@ export async function getHistoricalCandles(token, symbol, interval, fromDate, to
     historicalCache.set(cacheKey, { fetchedAt: Date.now(), candles });
     return candles;
   } catch (err) {
-    return null; // historical add-on not enabled, rate-limited, or transient error
+    // Historical add-on not enabled, rate-limited, or transient. The caller
+    // falls back to simulated data, so say so — silently, a page full of
+    // simulated stocks looked like live data that had simply loaded.
+    if (err.message !== NOT_CONNECTED) {
+      audit({ level: 'warn', category: 'data', action: 'historical.failed', user: userOf(token),
+        message: `Kite ${interval} history unavailable, falling back to simulated data: ${err.message}`, details: { symbol, interval } });
+    }
+    return null;
   }
 }

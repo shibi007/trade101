@@ -44,18 +44,21 @@ import insightsRoutes from './routes/insights.js';
 import kiteRoutes from './routes/kite.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
+import auditRoutes from './routes/audit.js';
 import { requireAuth, getSession, parseCookies, SESSION_COOKIE, hasUsers, createUser } from './services/authService.js';
 import { attachTickerHub } from './services/tickerHub.js';
 import { initStore, closeStore } from './services/store.js';
 import { getVersion } from './services/version.js';
+import { initAuditLog, audit } from './services/auditLog.js';
 
 // Restore persistent state and run migrations before anything is served. On a
 // host that wipes its disk, this is what brings users and saved Kite keys back
 // after every deploy and every restart. If stored data cannot be loaded the
 // boot fails rather than starting empty: the first save would then overwrite
 // everything that was stored.
+let storage;
 try {
-  const storage = await initStore();
+  storage = await initStore();
   console.log(`💾 Storage: ${storage.backend}${storage.encrypted ? ' (encrypted)' : ''}${storage.durable ? '' : ' — NOT durable on this host'}`);
   for (const m of storage.migrations) console.log(`🔁 Migration ${m.id}: ${m.touched.join(', ') || 'no changes'}`);
   if (!storage.durable) {
@@ -66,11 +69,32 @@ try {
   process.exit(1);
 }
 
+// The audit log goes to the database too when there is one; started here so
+// the boot itself is the first thing it records.
+const auditStore = await initAuditLog();
+{
+  const v = getVersion();
+  audit({
+    category: 'system', action: 'server.start',
+    message: `Server started — v${v.version}${v.commit ? ` (${v.commit})` : ''}, storage: ${storage.backend}${storage.encrypted ? ' (encrypted)' : ''}${storage.durable ? '' : ', not durable'}`,
+    details: { version: v.version, commit: v.commit, storage, auditPersisted: auditStore.persisted },
+  });
+  for (const m of storage.migrations) {
+    audit({ category: 'storage', action: 'migration', message: `Migration ${m.id} applied`, details: m });
+  }
+  if (!storage.durable) {
+    audit({ level: 'warn', category: 'storage', action: 'storage.ephemeral',
+      message: 'Storage is this host\'s disk, which is erased on every deploy and restart — saved logins, 2FA and keys will not survive. Set DATABASE_URL.' });
+  }
+}
+
 // Bootstrap the first user from env vars. With a database this runs once, on
 // the very first boot; on a wiped disk it runs on every boot.
 if (!hasUsers() && process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
   await createUser(process.env.ADMIN_USERNAME, process.env.ADMIN_PASSWORD, true); // first user is admin
   console.log(`👤 Bootstrapped admin user "${process.env.ADMIN_USERNAME}" from environment`);
+  audit({ category: 'auth', action: 'user.bootstrap', user: process.env.ADMIN_USERNAME,
+    message: 'Admin user created from ADMIN_USERNAME / ADMIN_PASSWORD (no users were stored)' });
 }
 
 // Public routes: login/logout + Kite OAuth callback (Zerodha redirects here)
@@ -82,6 +106,7 @@ app.use('/api/market', requireAuth, marketRoutes);
 app.use('/api/trade', requireAuth, tradeRoutes);
 app.use('/api/insights', requireAuth, insightsRoutes);
 app.use('/api/admin', requireAuth, adminRoutes);
+app.use('/api/audit', requireAuth, auditRoutes);
 // Kite: the OAuth callback must stay public (Zerodha redirects the browser
 // there); every other Kite endpoint needs a session.
 app.use('/api/kite', (req, res, next) => {
@@ -126,6 +151,7 @@ server.listen(PORT, () => {
 // Render sends SIGTERM before replacing an instance on deploy. Every write is
 // already committed when it returns, so this only releases connections.
 process.on('SIGTERM', () => {
+  audit({ category: 'system', action: 'server.stop', message: 'Server stopping (deploy, restart or sleep)' });
   server.close(() => closeStore().finally(() => process.exit(0)));
   setTimeout(() => process.exit(0), 10_000).unref();
 });

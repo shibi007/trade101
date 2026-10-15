@@ -1,14 +1,20 @@
 import express from 'express';
+import { audit } from '../services/auditLog.js';
 import {
   setCredentials, forgetCredentials, getStatus, getLoginUrl, completeSession,
   disconnect, getQuotes,
 } from '../services/kiteService.js';
-import { parseCookies, SESSION_COOKIE } from '../services/authService.js';
+import { parseCookies, SESSION_COOKIE, getSession } from '../services/authService.js';
 
 const router = express.Router();
 
 function getToken(req) {
   return parseCookies(req)[SESSION_COOKIE];
+}
+
+/** The signed-in username for a session token, for the audit log. */
+function sessionUser(token) {
+  return getSession(token)?.username ?? null;
 }
 
 // Connection status (never exposes the secret)
@@ -28,8 +34,12 @@ router.post('/config', async (req, res) => {
   }
   try {
     await setCredentials(token, apiKey, apiSecret, Boolean(remember));
-    res.json({ success: true, status: getStatus(token), loginUrl: getLoginUrl(token) });
+    const st = getStatus(token);
+    audit({ category: 'kite', action: 'credentials.set', user: sessionUser(token),
+      message: `Kite key ${st.apiKeyMasked} ${remember ? 'saved' : 'set for this login only'}`, details: { key: st.apiKeyMasked, remember: Boolean(remember) } });
+    res.json({ success: true, status: st, loginUrl: getLoginUrl(token) });
   } catch (err) {
+    audit({ level: 'warn', category: 'kite', action: 'credentials.rejected', user: sessionUser(token), message: `Kite key not saved: ${err.message}` });
     res.status(400).json({ error: err.message });
   }
 });
@@ -39,6 +49,7 @@ router.delete('/config', async (req, res) => {
   try {
     const token = getToken(req);
     await forgetCredentials(token);
+    audit({ category: 'kite', action: 'credentials.forgotten', user: sessionUser(token), message: 'Saved Kite key and secret removed' });
     res.json({ success: true, status: getStatus(token) });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -73,13 +84,17 @@ router.get('/callback', async (req, res) => {
     </script></body></html>`;
 
   if (status === 'cancelled' || !request_token) {
+    audit({ level: 'warn', category: 'kite', action: 'login.cancelled', user: sessionUser(token), message: 'Kite login was cancelled or returned no request token' });
     return res.send(page('Login cancelled', 'Kite login was not completed.', false));
   }
 
   try {
     const st = await completeSession(token, request_token);
+    audit({ category: 'kite', action: 'login', user: sessionUser(token),
+      message: `Connected to Kite as ${st.userName || st.userId} (${st.userId})`, details: { kiteUser: st.userId, key: st.apiKeyMasked, source: st.source } });
     res.send(page('Connected to Kite ✓', `Logged in as ${esc(st.userName || st.userId)}. Live NSE data is now active.`, true));
   } catch (err) {
+    audit({ level: 'error', category: 'kite', action: 'login.failed', user: sessionUser(token), message: `Kite login failed: ${err.message}` });
     res.send(page('Connection failed', esc(err.message), false));
   }
 });
@@ -88,6 +103,7 @@ router.get('/callback', async (req, res) => {
 router.post('/disconnect', (req, res) => {
   const token = getToken(req);
   disconnect(token);
+  audit({ category: 'kite', action: 'logout', user: sessionUser(token), message: 'Disconnected from Kite' });
   res.json({ success: true, status: getStatus(token) });
 });
 

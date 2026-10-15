@@ -825,10 +825,12 @@ test('the entry window opens at 09:30 and closes at the cutoff', () => {
   assert.equal(entryWindow('10:30', at(10, 30)).state, 'CLOSED');
 });
 
-test('the entry cutoff defaults to 10:30 and is capped at 14:45', () => {
-  assert.equal(entryWindow(undefined, at(10, 0)).cutoff, '10:30');
-  assert.equal(entryWindow('nonsense', at(10, 0)).cutoff, '10:30');
-  assert.equal(entryWindow('09:00', at(10, 0)).cutoff, '10:30', 'before the range forms is no window at all');
+test('the entry cutoff defaults to 14:00 and is capped at 14:45', () => {
+  assert.equal(entryWindow(undefined, at(10, 0)).cutoff, '14:00');
+  assert.equal(entryWindow('nonsense', at(10, 0)).cutoff, '14:00');
+  assert.equal(entryWindow('09:00', at(10, 0)).cutoff, '14:00', 'before the range forms is no window at all');
+  assert.equal(entryWindow(undefined, at(13, 59)).state, 'OPEN');
+  assert.equal(entryWindow(undefined, at(14, 0)).state, 'CLOSED');
   assert.equal(entryWindow('15:15', at(10, 0)).cutoff, '14:45');
   assert.equal(entryWindow('9:45', at(10, 0)).cutoff, '09:45', 'unpadded hours are accepted');
 });

@@ -1034,7 +1034,7 @@ export function normalisePinned(pinned) {
   return out.slice(0, UNIVERSE.length);
 }
 
-export const DEFAULT_ENTRY_CUTOFF = '10:30';
+export const DEFAULT_ENTRY_CUTOFF = '14:00';
 const ENTRY_OPENS = '09:30';     // the 15-minute opening range is complete
 const LATEST_CUTOFF = '14:45';   // well clear of the 15:20 MIS auto square-off
 
@@ -1046,8 +1046,8 @@ const fromMinutes = mins => `${String(Math.floor(mins / 60)).padStart(2, '0')}:$
 
 /**
  * When new intraday trades may be taken. Opens once the opening range has
- * formed and closes at the trader's cutoff — 10:30 by default, for someone who
- * sets trades up in the morning and leaves them. Anything unparseable falls
+ * formed and closes at the trader's cutoff — 14:00 by default, when the trader
+ * stops taking new trades for the day. Anything unparseable falls
  * back to the default; anything later than 14:45 is clamped, because a trade
  * entered after that has too little session left before the forced exit.
  */

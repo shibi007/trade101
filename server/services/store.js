@@ -318,6 +318,15 @@ export async function writeDoc(name, doc) {
   if (state) state.cache.set(name, structuredClone(doc));
 }
 
+/**
+ * The database connection pool when the Postgres backend is in use, else null —
+ * for append-only data such as the audit log, which does not belong in the
+ * whole-document store.
+ */
+export function sqlPool() {
+  return state?.backend?.kind === 'postgres' ? state.backend.pool : null;
+}
+
 /** Where data is kept and whether it survives a restart — shown in the UI. */
 export function storeStatus() {
   return state?.status ?? {

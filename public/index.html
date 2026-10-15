@@ -98,6 +98,14 @@
   .reasons li { margin:3px 0; font-size:13px; }
   /* Trade plan — the four numbers that actually matter, pulled out of the
      reference-levels soup and given their own visual weight. */
+  .lvl { font-size:10px; padding:1px 6px; border-radius:4px; text-transform:uppercase; letter-spacing:.04em; }
+  .lvl.error { background:rgba(248,81,73,.18); color:var(--red); }
+  .lvl.warn { background:rgba(210,153,34,.18); color:var(--amber); }
+  .lvl.info { background:rgba(88,166,255,.14); color:var(--blue); }
+  .lvl.debug { background:rgba(127,127,127,.14); color:var(--muted); }
+  #audit-table td { font-size:12.5px; vertical-align:top; }
+  #audit-table tr.audit-row { cursor:pointer; }
+  #audit-table pre { margin:4px 0 0; font-size:11.5px; white-space:pre-wrap; word-break:break-word; color:var(--muted); }
   .entry-banner { padding:9px 12px; border-radius:8px; margin:6px 0 10px; font-size:13px; border:1px solid var(--border); }
   .entry-banner.open { background:rgba(63,185,80,.08); border-color:rgba(63,185,80,.35); }
   .entry-banner.closed { background:rgba(248,81,73,.08); border-color:rgba(248,81,73,.35); }
@@ -302,6 +310,7 @@
   <button data-tab="insights">🔍 Market Insights</button>
   <button data-tab="guide">📚 Guide</button>
   <button data-tab="kite">🔗 Kite Connect</button>
+  <button data-tab="activity">📜 Activity</button>
 </nav>
 
 <main>
@@ -360,7 +369,35 @@
       </p>
       <div id="bt-results"></div>
     </div>
-    <div class="disclaimer">⚠️ Algorithmic screening for educational purposes only — not investment advice. Swing positions are held overnight and can gap through a stop on news. A short can only be held overnight through futures. Consult a SEBI-registered advisor before trading.</div>
+    <div class="disclaimer">⚠️ Algorithmic screening for educational purposes only — not investment advice. Swing positions are bought for delivery (CNC) and held overnight, so they can gap through a stop on news. Consult a SEBI-registered advisor before trading.</div>
+  </section>
+
+  <!-- ============ ACTIVITY TAB ============ -->
+  <section id="tab-activity" class="hidden">
+    <div class="card">
+      <h3>Activity log <span id="audit-scope" class="muted" style="font-size:11px;font-weight:normal"></span></h3>
+      <p class="alert-bar" style="margin:6px 0 10px">
+        <select id="audit-category" style="width:auto;margin:0;padding:4px 8px;font-size:12px">
+          <option value="">All activity</option>
+          <option value="kite">Kite</option>
+          <option value="data">Data &amp; picks</option>
+          <option value="auth">Sign-ins &amp; security</option>
+          <option value="backtest">Backtests</option>
+          <option value="system">Server</option>
+          <option value="storage">Storage</option>
+          <option value="admin">User admin</option>
+        </select>
+        <select id="audit-level" style="width:auto;margin:0;padding:4px 8px;font-size:12px">
+          <option value="warn">Problems only</option>
+          <option value="info" selected>Normal</option>
+          <option value="debug">Everything (incl. each refresh)</option>
+        </select>
+        <button id="audit-refresh">↻ Refresh</button>
+        <span id="audit-status" class="muted" style="font-size:12px"></span>
+      </p>
+      <div style="overflow:auto"><table id="audit-table"></table></div>
+      <p style="margin:10px 0 0"><button id="audit-older" style="display:none">Load older</button></p>
+    </div>
   </section>
 
   <!-- ============ INSIGHTS TAB ============ -->
@@ -509,8 +546,8 @@ const GLOSSARY = {
     'The average closing price over the last N days. Price above MA20 above MA50 — "stacked" — is the textbook uptrend and scores +12; the reverse is a downtrend. Price across MA20 while the averages still point the other way is an early turn or a pullback and scores +6. The 200-day is the long-term trend line. Needs Kite daily history.'],
   macd: ['MACD', 'Moving Average Convergence Divergence (12, 26, 9)',
     'The 12-period EMA minus the 26-period EMA, with a 9-period EMA of that as the signal line. The histogram (MACD minus signal) above zero is bullish momentum, below zero bearish. Scored +15 for a crossover in the last two bars, +10 for an older one still widening, +5 for one fading. Uses 5-minute candles once about 12:05 IST, when enough exist; daily candles before that, marked D.'],
-  fno: ['F&O', 'Futures & Options',
-    'Only stocks with exchange-traded futures and options are screened. F&O stocks are the most liquid on NSE, so entries and exits fill near the quoted price. With Kite connected the list comes from the exchange\'s instrument master; without it, from a static list kept in the code.'],
+  fno: ['F&O', 'F&O-eligible stocks',
+    'Only stocks that have exchange-traded futures and options are screened — used purely as a quality filter. The exchange admits only large, liquid, stable stocks to F&O, so entries and exits fill near the quoted price. You still trade the shares: intraday (MIS) or delivery (CNC), never futures or options. With Kite connected the list comes from the exchange\'s instrument master; without it, from a static list kept in the code.'],
   riskpertrade: ['Risk per trade', null,
     'How much of your capital one trade loses if its stop is hit. The quantity on every ticket is sized from it: risk budget ÷ stop distance. This — not a tight stop — is what keeps a loss small. 0.5% means ₹500 on ₹1,00,000.'],
   maxtrades: ['Max trades per day', null,
@@ -521,10 +558,8 @@ const GLOSSARY = {
     'A stop-loss order fires at the next available price. If a stock jumps past your stop — on news, or by hitting its circuit limit and halting — the exit can be worse than the stop, so a real loss can exceed the planned one.'],
   costr: ['Costs in R', null,
     'Estimated round-trip costs (brokerage, STT, exchange charges, GST, stamp duty, a little slippage) as a fraction of the risk. 0.25R means costs eat a quarter of what you risk on every trade — why making a stop tighter and tighter stops helping.'],
-  premium: ['Futures premium', null,
-    'A stock future usually trades a little above the share price. A GTT on the future triggers on the futures price, so levels worked out on the share price must be shifted by that difference.'],
   regime: ['Market trend', null,
-    'Nifty 50 against its 200-day average. Trend-following longs work best while the index is above it; momentum strategies fail worst in sharp rebounds after bear markets. Flagged on the board, and tested as a backtest variant.'],
+    'Nifty 50 against its 200-day average. Trend-following buys work best while the index is above it; momentum strategies fail worst in sharp rebounds after bear markets. Flagged on the board, and tested as a backtest variant.'],
   rsrank: ['RS rank', 'Relative Strength Rank',
     'Where this stock\'s 3-12 month return ranks in the universe, as a percentile: 90 means it beat 90% of the others. The latest quarter counts double. Intermediate-term momentum is one of the most replicated effects in equity markets, India included.'],
   rsi: ['RSI', 'Relative Strength Index (14)',
@@ -535,14 +570,8 @@ const GLOSSARY = {
     'A close above the highest close of the previous 20 sessions, on at least 1.5× the 50-day average volume. The volume matters: a new high nobody traded is often a false one. Stop goes back below the breakout level.'],
   breakout_52w: ['52-week breakout', null,
     'A close above the highest price of the previous year, on at least 1.5× the 50-day average volume. The strongest breakout: every seller who bought in the last year is now in profit, so there is no overhead supply waiting to sell. It replaces the 20-day trigger rather than adding to it, and the backtest shows separately whether it earns more. Stop goes back below the old 52-week high.'],
-  breakdown_52w: ['52-week breakdown', null,
-    'A close below the lowest price of the previous year on expanded volume — the short-side mirror of a 52-week breakout. Every buyer of the last year is now at a loss. Held through futures.'],
   pullback: ['Pullback buy', null,
     'A stock in an uptrend (above its 50-day average) that has dipped to within 3% of its 20-day average with RSI 40-55. It enters a strong trend at a discount instead of chasing it. Stop goes below the last 10 days\' low.'],
-  breakdown: ['Breakdown', null,
-    'The short-side mirror of a breakout: a close below the lowest close of the previous 20 sessions on expanded volume. Held through futures, since a cash short cannot be held overnight.'],
-  rally: ['Rally sell', null,
-    'The short-side mirror of a pullback: a stock in a downtrend that has bounced to its 20-day average with RSI 45-60. Held through futures.'],
   timestop: ['Time stop', null,
     'Exit at the close of the 10th session if neither the stop nor the target has been reached. A swing setup that has not worked in two weeks has usually stopped working, and the capital is better used elsewhere.'],
   backtest: ['Backtest', null,
@@ -551,8 +580,6 @@ const GLOSSARY = {
     'The average result per trade in multiples of the risk taken. +0.3R means that, on average, each trade made 0.3 times what it risked. Above zero after costs is the bar a strategy must clear; win rate alone says nothing without it.'],
   profitfactor: ['Profit factor', null,
     'Total gains divided by total losses. Above 1 makes money; 1.5 or more is solid for a swing system. Below 1, the losers outweigh the winners.'],
-  lotsize: ['Lot', 'F&O Lot Size',
-    'The number of shares in one futures or options contract, from the nearest expiry. Exchanges revise lots periodically. Shown only with Kite connected — never guessed, because a wrong lot size sizes a real position wrongly.'],
   ltp: ['LTP', 'Last Traded Price',
     'The price of the most recent trade — the live quote when Kite is connected.'],
   relvolume: ['Relative volume', 'Relative Volume (RVOL)',
@@ -777,7 +804,7 @@ const GUIDE = [
     exit you below your stop. That is the residual risk no order type removes.</p>`],
 
   ['Placing orders in Kite', `
-    <p><strong>Intraday (morning set-up, then away).</strong> Zerodha discontinued bracket orders in 2020, and GTT
+    <p><strong>Intraday (set up, then leave it).</strong> Zerodha discontinued bracket orders in 2020, and GTT
     does not work for intraday (MIS) positions. So each intraday card gives two ordinary orders:</p>
     <ol>
       <li>The entry — <code>Intraday (MIS)</code>, <code>Limit</code> at the shown price, before your cutoff.</li>
@@ -791,13 +818,12 @@ const GUIDE = [
     stop-loss trigger and one target trigger, where hitting either cancels the other. GTTs last up to a year.
     Set the stop leg's limit a little below its trigger so it fills in a fast fall. Two things a GTT cannot do:
     move the stop to breakeven at T1, and exit after 10 sessions — each card gives the price and the date.</p>
-    <p><strong>Swing shorts</strong> are only possible through futures (<code>NRML</code>), since a cash short must be
-    closed the same day. A futures GTT triggers on the futures price, so shift the card's levels by the futures
-    premium — futures price minus share price.</p>`],
+    <p>Everything here is in shares — no futures or options. Swing is buy-only, because a share short cannot be
+    held overnight in India.</p>`],
 
   ['<span id="guide-swing"></span>Swing trading: how the formula works', `
     <p>Swing picks are held for days, not minutes, so they are scored on <strong>completed daily candles</strong> with a
-    different formula. It is built from the factors with the strongest published evidence at this horizon — and
+    different formula. They are <strong>buy-only, in shares (CNC delivery)</strong>. It is built from the factors with the strongest published evidence at this horizon — and
     the <strong>Backtest</strong> panel on the Swing tab replays it on real NSE history so you can judge it on results,
     not on this description.</p>
     <table class="signal-table">
@@ -808,18 +834,17 @@ const GUIDE = [
       <tr><td><strong>Daily MACD</strong><br><span class="muted">Fresh crossover, or momentum still building. Kept small: it overlaps relative strength.</span></td><td class="w plus">+10 / +5</td></tr>
       <tr><td><strong>Range tightening</strong><br><span class="muted">10-day range under 75% of the 50-day — a stock coiling before it moves.</span></td><td class="w plus">+10</td></tr>
       <tr><td><strong>Extended from MA20</strong><br><span class="muted">More than 8% away — late, with a poor stop distance.</span></td><td class="w minus">−15</td></tr>
-      <tr><td><strong>RSI overbought / oversold</strong><br><span class="muted">Above 75 for a buy, below 25 for a sell.</span></td><td class="w minus">−10</td></tr>
+      <tr><td><strong>RSI overbought</strong><br><span class="muted">Above 75.</span></td><td class="w minus">−10</td></tr>
       <tr><td><strong>Unsuitable daily range</strong><br><span class="muted">Outside 0.4×-2.2× the universe's median daily ATR.</span></td><td class="w minus">−10</td></tr>
     </table>
-    <p>Shorts score the mirror image of every rule. A stock becomes a <strong>pick</strong> only with an entry trigger and
+    <p>A stock becomes a <strong>pick</strong> only with an entry trigger and
     a score of 50 or more; strong stocks without a trigger go on the <strong>watchlist</strong>.</p>
     <p><strong>The trade plan.</strong> The stop goes where the setup is proven wrong — back below the breakout level, or
     below the last 10 days' low for a pullback — then held between 1 and 3 daily ATRs. Targets at 2R and 3R,
     because swing win rates usually sit below half and the winners must be well over twice the losers. Exit after
     10 sessions if neither is reached. After a close, the plan uses that close; during market hours a live price
     marks a plan as stale if it has already passed the stop or the first target.</p>
-    <p><strong>Sizing.</strong> Cash positions are sized at 1× — intraday MIS leverage does not apply overnight. Shorts can
-    only be held overnight through futures, so a SELL card shows what one futures lot risks instead.</p>
+    <p><strong>Sizing.</strong> Delivery positions are sized at 1× — intraday MIS leverage does not apply overnight.</p>
     <p><strong>What it cannot promise.</strong> No formula guarantees high returns. These effects are averages over decades,
     they weaken once widely traded, and they can fail for years. Run the backtest, and trust it over this page.</p>`],
 
@@ -1084,12 +1109,14 @@ function skeletonBreadth() {
 // ---------- trade settings (per browser) ----------
 // Risk per trade defaults to 0.5%: what caps a loss is position size, not stop
 // distance, and 2% a trade is a lot for someone whose priority is not losing
-// much. Entry cutoff defaults to 10:30 for a trader who sets up in the morning
-// and leaves. All three are the trader's to change.
+// much. Entry cutoff defaults to 14:00, when new recommendations stop for the
+// day. All three are the trader's to change.
 const readSetting = (k, fallback, ok) => { try { const v = localStorage.getItem(k); return v != null && ok(v) ? v : fallback; } catch { return fallback; } };
 let riskPct = Number(readSetting('riskPct', '0.5', v => [0.25, 0.5, 1, 2].includes(Number(v)))) / 100;
 let maxTrades = Number(readSetting('maxTrades', '2', v => [1, 2, 3, 4, 5].includes(Number(v))));
-let entryCutoff = readSetting('entryCutoff', '10:30', v => /^(0?9|1[0-4]):[0-5]\d$/.test(v));
+// 10:30 was the old default; a browser that still holds it moves to 14:00 once.
+try { if (localStorage.getItem('entryCutoffV') !== '2') { if (localStorage.getItem('entryCutoff') === '10:30') localStorage.removeItem('entryCutoff'); localStorage.setItem('entryCutoffV', '2'); } } catch { /* storage blocked: defaults apply */ }
+let entryCutoff = readSetting('entryCutoff', '14:00', v => /^(0?9|1[0-4]):[0-5]\d$/.test(v));
 const saveSetting = (k, v) => { try { localStorage.setItem(k, String(v)); } catch { /* private mode: setting lasts this tab */ } };
 let leverage = Number(localStorage.getItem('leverage')) || 1;
 
@@ -1186,59 +1213,37 @@ function sessionsAhead(from, n) {
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
 }
 
-function swingTicket(p, cashQty, lots, generatedAt) {
-  const L = p.levels, t = p.tickSize, long = p.direction === 'LONG';
+function swingTicket(p, cashQty, generatedAt) {
+  // Swing is long-only in shares: buy for delivery (CNC), protect with a GTT.
+  const L = p.levels, t = p.tickSize;
   const exitBy = sessionsAhead(generatedAt, L.timeStopSessions);
   // A GTT fires a LIMIT order. A stop-loss limit set exactly at the trigger
-  // can be skipped over in a fast fall, so it sits a little past the trigger.
-  const slLimit = long ? L.stopLoss * 0.995 : L.stopLoss * 1.005;
-  if (long) {
-    const q = cashQty > 0 ? `<code>${cashQty}</code>` : '<code>your size</code>';
-    return `
-    <div class="ticket">
-      <h4>Place in Kite · Delivery (CNC) + GTT</h4>
-      <ol>
-        <li><b>BUY</b> ${q} × <b>${p.symbol}</b> — product <code>Delivery (CNC)</code>, type <code>Limit</code>, price <code>₹${px(L.liveEntry ?? L.referenceEntry, t)}</code>.</li>
-        <li>Once it is in your holdings, create a <b>GTT → OCO</b> (sell ${q}, CNC):
-          stop-loss trigger <code>₹${px(L.stopLoss, t)}</code> (limit <code>₹${px(slLimit, t)}</code>) ·
-          target trigger <code>₹${px(L.target2, t)}</code> (limit <code>₹${px(L.target2, t)}</code>).</li>
-        <li>If the price reaches T1 <code>₹${px(L.target1, t)}</code>, edit the GTT's stop-loss to your buy price — breakeven. The backtest assumes this.</li>
-        <li>If neither has triggered by about <b>${exitBy}</b> (${L.timeStopSessions} sessions), sell and delete the GTT. A GTT cannot do this for you.</li>
-      </ol>
-      <details><summary>How to set the GTT in Kite</summary>
-        <ol>
-          <li>Buy first: search <b>${p.symbol}</b>, press <b>B</b>, choose <b>Delivery (CNC)</b> and <b>Limit</b>, place.</li>
-          <li>When it appears in <b>Holdings</b> (the same day is fine), click ${p.symbol} → <b>Create GTT</b>.</li>
-          <li>Choose <b>Sell</b> and <b>OCO</b> (one cancels the other).</li>
-          <li><b>Stoploss</b> leg: trigger ₹${px(L.stopLoss, t)}, price ₹${px(slLimit, t)}. <b>Target</b> leg: trigger ₹${px(L.target2, t)}, price ₹${px(L.target2, t)}. Quantity ${cashQty > 0 ? cashQty : 'as bought'} on both.</li>
-          <li>Create. It sits under <b>Orders → GTT</b> for up to a year; when either trigger is hit, Kite places that order and cancels the other.</li>
-        </ol>
-        <div class="muted">A GTT checks the last traded price. If the stock gaps below your stop at the open, the sell fills at the gap price, not at your stop.</div>
-      </details>
-      ${tickNote(p)}
-    </div>`;
-  }
-  const lotText = lots > 0 ? `<code>${lots} lot${lots > 1 ? 's' : ''}</code>` : '<code>1 lot, if it fits your risk</code>';
+  // can be skipped over in a fast fall, so it sits a little below the trigger.
+  const slLimit = L.stopLoss * 0.995;
+  const q = cashQty > 0 ? `<code>${cashQty}</code>` : '<code>your size</code>';
   return `
-    <div class="ticket">
-      <h4>Place in Kite · Futures (NRML) + GTT</h4>
+  <div class="ticket">
+    <h4>Place in Kite · Delivery (CNC) + GTT</h4>
+    <ol>
+      <li><b>BUY</b> ${q} × <b>${p.symbol}</b> — product <code>Delivery (CNC)</code>, type <code>Limit</code>, price <code>₹${px(L.liveEntry ?? L.referenceEntry, t)}</code>.</li>
+      <li>Once it is in your holdings, create a <b>GTT → OCO</b> (sell ${q}, CNC):
+        stop-loss trigger <code>₹${px(L.stopLoss, t)}</code> (limit <code>₹${px(slLimit, t)}</code>) ·
+        target trigger <code>₹${px(L.target2, t)}</code> (limit <code>₹${px(L.target2, t)}</code>).</li>
+      <li>If the price reaches T1 <code>₹${px(L.target1, t)}</code>, edit the GTT's stop-loss to your buy price — breakeven. The backtest assumes this.</li>
+      <li>If neither has triggered by about <b>${exitBy}</b> (${L.timeStopSessions} sessions), sell and delete the GTT. A GTT cannot do this for you.</li>
+    </ol>
+    <details><summary>How to set the GTT in Kite</summary>
       <ol>
-        <li><b>SELL</b> ${lotText} of <b>${p.symbol}</b> near-month <b>FUT</b> — product <code>Overnight (NRML)</code>, type <code>Limit</code> at the futures price.</li>
-        <li>Shift every level by the <span data-tip="premium" tabindex="0">futures premium</span>: premium = futures price − share price when you enter.
-          Stop = <code>₹${px(L.stopLoss, t)} + premium</code>, target = <code>₹${px(L.target2, t)} + premium</code>.</li>
-        <li>Create a <b>GTT → OCO</b> to <b>buy</b> back the same lots (NRML) at those two shifted triggers.</li>
-        <li>If neither has triggered by about <b>${exitBy}</b>, buy back and delete the GTT — and close before the contract expires either way.</li>
+        <li>Buy first: search <b>${p.symbol}</b>, press <b>B</b>, choose <b>Delivery (CNC)</b> and <b>Limit</b>, place.</li>
+        <li>When it appears in <b>Holdings</b> (the same day is fine), click ${p.symbol} → <b>Create GTT</b>.</li>
+        <li>Choose <b>Sell</b> and <b>OCO</b> (one cancels the other).</li>
+        <li><b>Stoploss</b> leg: trigger ₹${px(L.stopLoss, t)}, price ₹${px(slLimit, t)}. <b>Target</b> leg: trigger ₹${px(L.target2, t)}, price ₹${px(L.target2, t)}. Quantity ${cashQty > 0 ? cashQty : 'as bought'} on both.</li>
+        <li>Create. It sits under <b>Orders → GTT</b> for up to a year; when either trigger is hit, Kite places that order and cancels the other.</li>
       </ol>
-      <details><summary>How to set the GTT in Kite</summary>
-        <ol>
-          <li>Search <b>${p.symbol} FUT</b>, pick the nearest expiry, press <b>S</b>, choose <b>Overnight (NRML)</b> and <b>Limit</b>, place.</li>
-          <li>Note the futures price against the share price (₹${fmt(p.ltp)}): the difference is the premium.</li>
-          <li>From <b>Positions</b>, click the contract → <b>Create GTT</b> → <b>Buy</b> → <b>OCO</b>.</li>
-          <li>Stoploss trigger = ₹${px(L.stopLoss, t)} + premium (price a little above it); target trigger = ₹${px(L.target2, t)} + premium. Same lots on both. Create.</li>
-        </ol>
-      </details>
-      ${tickNote(p)}
-    </div>`;
+      <div class="muted">A GTT checks the last traded price. If the stock gaps below your stop at the open, the sell fills at the gap price, not at your stop.</div>
+    </details>
+    ${tickNote(p)}
+  </div>`;
 }
 
 function renderTradeSettings() {
@@ -1586,7 +1591,7 @@ function renderInsights(d) {
     return `<span class="${s.macdHistogram > 0 ? 'pos' : s.macdHistogram < 0 ? 'neg' : 'muted'}" title="MACD histogram (${s.macdTimeframe === '1d' ? 'daily' : '5-minute'})">${s.macdHistogram > 0 ? '+' : ''}${s.macdHistogram}</span> <span class="muted" style="font-size:10px">${tf}</span>`;
   };
 
-  $('#universe-table').innerHTML = `<tr><th>Pin</th><th>Symbol</th><th>LTP</th><th>Chg</th><th>Gap</th><th>VWAP</th><th>${tip('sma', 'MA20/50')}</th><th>${tip('macd', 'MACD')}</th><th>${tip('lotsize', 'Lot')}</th><th>${tip('score', 'Score')}</th></tr>` +
+  $('#universe-table').innerHTML = `<tr><th>Pin</th><th>Symbol</th><th>LTP</th><th>Chg</th><th>Gap</th><th>VWAP</th><th>${tip('sma', 'MA20/50')}</th><th>${tip('macd', 'MACD')}</th><th>${tip('score', 'Score')}</th></tr>` +
     d.universe.map(s => {
       const isPinned = pinnedSymbols.includes(s.symbol);
       return `<tr><td><button class="pin-btn${isPinned ? ' pinned' : ''}" data-pin="${s.symbol}" style="position:static"
@@ -1600,7 +1605,6 @@ function renderInsights(d) {
       <td>${s.aboveVwap ? '<span class="pos">above</span>' : '<span class="neg">below</span>'}</td>
       <td>${maCell(s)}</td>
       <td>${macdCell(s)}</td>
-      <td>${s.lotSize != null ? s.lotSize : '<span class="muted" title="Lot size comes from Kite\'s NFO list">—</span>'}</td>
       <td>${s.score} <span class="badge ${s.direction.toLowerCase()}" style="font-size:10px">${s.direction}</span></td></tr>`;
     }).join('');
 
@@ -1614,16 +1618,15 @@ let latestSwing = null;
 let swingInFlight = false;
 
 const SETUP_LABEL = {
-  BREAKOUT_52W: ['▲ 52-week breakout', 'long'], BREAKDOWN_52W: ['▼ 52-week breakdown', 'short'],
-  BREAKOUT: ['▲ Breakout', 'long'], PULLBACK: ['↘ Pullback buy', 'long'],
-  BREAKDOWN: ['▼ Breakdown', 'short'], RALLY: ['↗ Rally sell', 'short'], WATCH: ['Watch', 'info'],
+  BREAKOUT_52W: ['▲ 52-week breakout', 'long'], BREAKOUT: ['▲ Breakout', 'long'],
+  PULLBACK: ['↘ Pullback buy', 'long'], WATCH: ['Watch', 'info'],
 };
 
 function swingScoreTip(p) {
   const line = b => `<tr${b.points < 0 ? ' class="muted-row"' : ''}><td>${b.label}</td><td class="pts">${b.points > 0 ? '+' : ''}${b.points}</td></tr>`;
   const clamped = p.rawTotal != null && p.rawTotal !== p.score;
   return `<div class="tip-title">Why this scores ${p.score}/100</div>
-    <div class="tip-full">${p.direction === 'LONG' ? 'BUY' : 'SELL'} side, daily candles</div>
+    <div class="tip-full">Buy side, daily candles</div>
     <table>${(p.breakdown || []).map(line).join('')}
       ${clamped ? `<tr class="muted-row"><td>Raw total ${p.rawTotal}, ${p.rawTotal > 100 ? 'capped at 100' : 'floored at 0'}</td><td class="pts"></td></tr>` : ''}
       <tr class="total"><td>Swing score</td><td class="pts">${p.score}/100</td></tr></table>
@@ -1641,7 +1644,7 @@ function renderSwing(d) {
       ? ` · <span data-tip="regime" tabindex="0" class="${d.marketRegime.state === 'UP' ? 'pos' : 'neg'}">Nifty ${d.marketRegime.state === 'UP' ? 'above' : 'below'} its 200-day average (${fmt(d.marketRegime.close)} vs ${fmt(d.marketRegime.sma200)})</span>`
       : ' · <span class="muted" data-tip="regime" tabindex="0">market trend needs Kite</span>');
 
-  // Swing positions are delivery (cash) or futures: no intraday MIS leverage.
+  // Swing positions are delivery (CNC): no intraday MIS leverage.
   const capital = latest?.funds?.net > 0 ? latest.funds.net : 100000;
   const capitalLabel = latest?.funds?.net > 0
     ? `your ₹${Math.round(latest.funds.net).toLocaleString('en-IN')} balance` : 'a ₹1,00,000 notional account';
@@ -1653,28 +1656,19 @@ function renderSwing(d) {
     list.innerHTML = d.picks.map((p, i) => {
       const L = p.levels, ind = p.indicators;
       const [setupText, setupCls] = SETUP_LABEL[p.setup] || SETUP_LABEL.WATCH;
-      const isShort = p.direction === 'SHORT';
       // Levels are fixed at the signal close; entering at today's price changes
       // the distance to the stop, so size on the live risk when there is one.
       const entryNow = L.liveEntry ?? L.referenceEntry;
       const riskNow = L.liveRiskPerShare ?? L.riskPerShare;
-      const cash = isShort ? null : positionSize(entryNow, riskNow, capital, 1);
-      const lotRisk = p.lotSize ? p.lotSize * riskNow : null;
-      // Whole lots only: how many fit inside the per-trade risk budget.
-      const lots = lotRisk ? Math.floor((capital * riskPct) / lotRisk) : 0;
-      const sizing = [
-        isShort
-          ? `<b>Short via futures only</b> — Indian cash-market shorts must be squared off the same day`
-          : cash ? `Cash (delivery, 1×): <b>${cash.qty} shares</b> = ₹${fmt(Math.round(cash.notional))} · ₹${fmt(Math.round(cash.riskAtStop))} at risk (${cash.actualRiskPct.toFixed(2)}% of ${capitalLabel})${cash.boundBy === 'margin' ? ' · capped by capital' : ''}` : '',
-        lotRisk != null
-          ? `Futures: 1 lot = ${p.lotSize} shares, risks ₹${fmt(Math.round(lotRisk))} (${(lotRisk / capital * 100).toFixed(1)}% of capital)${lotRisk > capital * riskPct ? ` <span class="blocked">⚠ one lot risks more than your ${(riskPct * 100).toFixed(2).replace(/\.?0+$/, '')}% limit — skip it, or trade it in cash</span>` : ''}`
-          : `<span class="muted">Futures lot size shown when Kite is connected</span>`,
-      ].filter(Boolean).join('<br>');
+      const cash = positionSize(entryNow, riskNow, capital, 1);
+      const sizing = cash
+        ? `Delivery (CNC, 1×): <b>${cash.qty} shares</b> = ₹${fmt(Math.round(cash.notional))} · ₹${fmt(Math.round(cash.riskAtStop))} at risk (${cash.actualRiskPct.toFixed(2)}% of ${capitalLabel})${cash.boundBy === 'margin' ? ' · capped by capital' : ''}`
+        : '';
       return `
-      <div class="card pick ${p.direction.toLowerCase()}" style="animation-delay:${i * 70}ms" data-swing="${p.symbol}">
+      <div class="card pick long" style="animation-delay:${i * 70}ms" data-swing="${p.symbol}">
         <div class="pick-head">
           <span class="sym">${p.symbol}</span>
-          <span class="badge action ${p.direction.toLowerCase()}">${isShort ? 'SELL' : 'BUY'}</span>
+          <span class="badge action long">BUY</span>
           <span class="badge ${setupCls}" data-tip="${p.setup.toLowerCase()}" tabindex="0">${setupText}</span>
           <span class="badge info">${p.sector}</span>
           <span class="badge ${p.real ? 'long' : 'info'}" data-tip="real" tabindex="0">${p.real ? '● REAL' : '○ SIM'}</span>
@@ -1691,12 +1685,12 @@ function renderSwing(d) {
           <div class="sl">${tip('stoploss', 'Stop loss')}<b>₹${fmt(L.stopLoss)}</b></div>
           <div class="t1">${tip('target1', 'Target 1')}<b>₹${fmt(L.target1)}</b><span class="rr" style="display:inline" data-tip="risk" tabindex="0">2R</span></div>
           <div class="t2">${tip('target2', 'Target 2')}<b>₹${fmt(L.target2)}</b><span class="rr" style="display:inline" data-tip="risk" tabindex="0">3R</span>
-            ${L.target2Blocked ? `<span class="blocked" data-tip="high52" tabindex="0">⚠ 52-week ${isShort ? 'low' : 'high'} ₹${fmt(L.barrier)} sits before this level</span>` : ''}</div>
+            ${L.target2Blocked ? `<span class="blocked" data-tip="high52" tabindex="0">⚠ 52-week high ₹${fmt(L.barrier)} sits before this level</span>` : ''}</div>
         </div>
         <p class="plan-note">Levels from the signal close ₹${fmt(L.referenceEntry)} · risk ₹${fmt(L.riskPerShare)}/share (${L.riskPct}%) · stop ${L.stopBasis} ·
           ${L.liveEntry != null && L.liveEntry !== L.referenceEntry ? `<b>at ₹${fmt(L.liveEntry)} now, risk is ₹${fmt(L.liveRiskPerShare)}/share</b> ·` : ''}
           ${tip('timestop', 'time stop')} ${L.timeStopSessions} sessions<br>${sizing}</p>
-        ${swingTicket(p, cash?.qty, lots, d.generatedAt)}
+        ${swingTicket(p, cash?.qty, d.generatedAt)}
         <div class="levels">
           <div>${tip('sma', 'MA 20 / 50 / 200')}₹${fmt(ind.sma20)} / ₹${fmt(ind.sma50)} / ₹${fmt(ind.sma200)}</div>
           <div>${tip('rsi', 'RSI (14)')}${fmt(ind.rsi)}</div>
@@ -1716,15 +1710,12 @@ function renderSwing(d) {
   }
 
   $('#swing-watch').innerHTML = d.watchlist.length
-    ? `<tr><th>Symbol</th><th>Side</th><th>${tip('score', 'Score')}</th><th>${tip('rsrank', 'RS rank')}</th><th>${tip('rsi', 'RSI')}</th><th>From 52w high</th><th>Waiting for</th></tr>` +
+    ? `<tr><th>Symbol</th><th>${tip('score', 'Score')}</th><th>${tip('rsrank', 'RS rank')}</th><th>${tip('rsi', 'RSI')}</th><th>From 52w high</th><th>Waiting for</th></tr>` +
       d.watchlist.map(w => `<tr data-swing="${w.symbol}" style="cursor:pointer">
         <td><b>${w.symbol}</b> <span class="muted" style="font-size:11px">${w.sector}</span></td>
-        <td><span class="badge ${w.direction.toLowerCase()}" style="font-size:10px">${w.direction === 'LONG' ? 'BUY' : 'SELL'}</span></td>
         <td>${w.score}</td><td>${fmt(w.indicators.rsPercentile)}</td><td>${fmt(w.indicators.rsi)}</td>
         <td class="${cls(w.indicators.pctFromHigh52)}">${pct(w.indicators.pctFromHigh52)}</td>
-        <td class="muted" style="font-size:12px">${w.direction === 'LONG'
-          ? 'a close above the 20-day high on volume, or a dip to MA20'
-          : 'a close below the 20-day low on volume, or a bounce to MA20'}</td></tr>`).join('')
+        <td class="muted" style="font-size:12px">a close above the 20-day high on volume, or a dip to MA20</td></tr>`).join('')
     : '<tr><td class="muted">Nothing strong enough to watch today.</td></tr>';
   $('#swing-watch').querySelectorAll('[data-swing]').forEach(row => {
     row.onclick = () => openChart(row.dataset.swing, { board: 'swing', interval: 'day' });
@@ -1734,21 +1725,37 @@ function renderSwing(d) {
 async function loadSwing() {
   if (swingInFlight) return;
   swingInFlight = true;
-  if (!latestSwing) $('#swing-list').innerHTML = skeletonPicks(2);
+  // Say what is happening: with Kite connected the first load fetches a year
+  // of daily candles per stock through a rate-limited queue, and a free
+  // instance may also be waking up. Placeholders alone looked like a hang.
+  if (!latestSwing) {
+    $('#swing-list').innerHTML = `<div class="card muted" style="font-size:13px">Building swing picks — fetching a year of daily candles for each stock from Kite.
+      The first load after the server wakes can take up to a minute. Progress and any errors show in the <a href="#" class="goto-activity" style="color:var(--blue)">Activity</a> tab.</div>` + skeletonPicks(2);
+  }
+  // Never wait forever: a request that hangs leaves the placeholders up with
+  // no explanation, which is exactly what this used to do.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120_000);
   try {
-    const r = await api('/api/insights/swing');
+    const r = await api('/api/insights/swing', { signal: controller.signal });
     if (r.status === 401) { location.href = '/login.html'; return; }
     const data = await r.json().catch(() => null);
     if (!r.ok || !data || !Array.isArray(data.picks)) {
-      $('#swing-list').innerHTML = `<div class="card"><b>Could not build swing picks.</b><div class="muted">HTTP ${r.status}: ${data?.error || 'malformed response'}</div></div>`;
+      $('#swing-list').innerHTML = `<div class="card"><b>Could not build swing picks.</b><div class="muted">HTTP ${r.status}: ${escHtml(data?.error || 'malformed response')}. Details in the <a href="#" class="goto-activity" style="color:var(--blue)">Activity</a> tab.</div></div>`;
       return;
     }
     latestSwing = data;
     renderSwing(data);
-  } catch {
-    $('#swing-list').innerHTML = '<div class="card"><b>Could not reach the server.</b></div>';
+  } catch (err) {
+    $('#swing-list').innerHTML = err.name === 'AbortError'
+      ? '<div class="card"><b>Swing picks took longer than 2 minutes and were cancelled.</b><div class="muted">Kite may be rate-limiting or slow. See the <a href="#" class="goto-activity" style="color:var(--blue)">Activity</a> tab for what happened, then reopen this tab to retry.</div></div>'
+      : '<div class="card"><b>Could not reach the server.</b><div class="muted">If it was asleep it may be restarting — retry in a minute.</div></div>';
   } finally {
+    clearTimeout(timeout);
     swingInFlight = false;
+    $('#swing-list').querySelectorAll('.goto-activity').forEach(a => {
+      a.onclick = e => { e.preventDefault(); document.querySelector('nav button[data-tab="activity"]').click(); };
+    });
   }
 }
 
@@ -1876,6 +1883,80 @@ $('#swing-guide-link').onclick = e => {
   document.querySelector('nav button[data-tab="guide"]').click();
   setTimeout(() => document.getElementById('guide-swing')?.scrollIntoView({ behavior: 'smooth' }), 50);
 };
+
+// ---------- Activity (audit log) ----------
+let auditEvents = [];
+let auditTimer = null;
+
+function escHtml(v) {
+  return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+function auditTime(iso) {
+  return new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function renderAudit(meta) {
+  const t = $('#audit-table');
+  if (!auditEvents.length) {
+    t.innerHTML = '<tr><td class="muted">Nothing recorded for this filter yet.</td></tr>';
+    return;
+  }
+  // Text comes from the server's log, which includes Kite error messages and
+  // usernames typed at the login box: always escaped.
+  t.innerHTML = '<tr><th>Time (IST)</th><th>Level</th><th>Area</th><th>What happened</th><th>User</th></tr>' +
+    auditEvents.map((e, i) => `<tr class="audit-row" data-i="${i}">
+      <td style="white-space:nowrap">${auditTime(e.at)}</td>
+      <td><span class="lvl ${escHtml(e.level)}">${escHtml(e.level)}</span></td>
+      <td class="muted">${escHtml(e.category)}</td>
+      <td>${escHtml(e.message)}${e.repeats ? ` <span class="badge info" style="font-size:10px" title="Folded repeats; last at ${e.lastAt ? auditTime(e.lastAt) : '—'}">×${e.repeats + 1}</span>` : ''}
+        <div class="audit-detail" style="display:none"><pre>${escHtml(JSON.stringify({ event: e.action, ...(e.details ? { details: e.details } : {}) }, null, 2))}</pre></div></td>
+      <td class="muted">${escHtml(e.user || '—')}</td></tr>`).join('');
+  t.querySelectorAll('.audit-row').forEach(row => {
+    row.onclick = () => {
+      const d = row.querySelector('.audit-detail');
+      d.style.display = d.style.display === 'none' ? 'block' : 'none';
+    };
+  });
+  if (meta) {
+    $('#audit-scope').textContent = `· ${meta.scope === 'all' ? 'all users' : 'your activity and the server\'s'} · ${meta.source === 'database' ? 'kept 30 days in the database' : 'since the server last started (no database: not kept across restarts)'}`;
+  }
+}
+
+async function loadAudit({ older = false } = {}) {
+  const params = new URLSearchParams({ limit: '100', level: $('#audit-level').value });
+  if ($('#audit-category').value) params.set('category', $('#audit-category').value);
+  if (older && auditEvents.length) params.set('before', auditEvents[auditEvents.length - 1].at);
+  $('#audit-status').textContent = 'Loading…';
+  try {
+    const r = await api(`/api/audit?${params}`);
+    if (r.status === 401) { location.href = '/login.html'; return; }
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+    auditEvents = older ? [...auditEvents, ...data.events] : data.events;
+    renderAudit(data);
+    $('#audit-older').style.display = data.events.length >= 100 ? 'inline-block' : 'none';
+    $('#audit-status').textContent = `Updated ${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}`;
+  } catch (err) {
+    $('#audit-status').textContent = `Could not load: ${err.message}`;
+  }
+}
+
+$('#audit-refresh').onclick = () => loadAudit();
+$('#audit-older').onclick = () => loadAudit({ older: true });
+$('#audit-category').onchange = () => loadAudit();
+$('#audit-level').onchange = () => loadAudit();
+
+// Refresh while the tab is open; stop when it is not, so an idle page does not
+// poll the server (and keep a free instance awake) for a log nobody is reading.
+document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => {
+  clearInterval(auditTimer);
+  auditTimer = null;
+  if (b.dataset.tab === 'activity') {
+    loadAudit();
+    auditTimer = setInterval(() => { if (!document.hidden) loadAudit(); }, 15_000);
+  }
+}));
 
 // ---------- Kite Connect ----------
 $('#redirect-url').textContent = location.origin + '/api/kite/callback';

@@ -804,7 +804,7 @@ const GUIDE = [
     exit you below your stop. That is the residual risk no order type removes.</p>`],
 
   ['Placing orders in Kite', `
-    <p><strong>Intraday (morning set-up, then away).</strong> Zerodha discontinued bracket orders in 2020, and GTT
+    <p><strong>Intraday (set up, then leave it).</strong> Zerodha discontinued bracket orders in 2020, and GTT
     does not work for intraday (MIS) positions. So each intraday card gives two ordinary orders:</p>
     <ol>
       <li>The entry — <code>Intraday (MIS)</code>, <code>Limit</code> at the shown price, before your cutoff.</li>
@@ -1109,12 +1109,14 @@ function skeletonBreadth() {
 // ---------- trade settings (per browser) ----------
 // Risk per trade defaults to 0.5%: what caps a loss is position size, not stop
 // distance, and 2% a trade is a lot for someone whose priority is not losing
-// much. Entry cutoff defaults to 10:30 for a trader who sets up in the morning
-// and leaves. All three are the trader's to change.
+// much. Entry cutoff defaults to 14:00, when new recommendations stop for the
+// day. All three are the trader's to change.
 const readSetting = (k, fallback, ok) => { try { const v = localStorage.getItem(k); return v != null && ok(v) ? v : fallback; } catch { return fallback; } };
 let riskPct = Number(readSetting('riskPct', '0.5', v => [0.25, 0.5, 1, 2].includes(Number(v)))) / 100;
 let maxTrades = Number(readSetting('maxTrades', '2', v => [1, 2, 3, 4, 5].includes(Number(v))));
-let entryCutoff = readSetting('entryCutoff', '10:30', v => /^(0?9|1[0-4]):[0-5]\d$/.test(v));
+// 10:30 was the old default; a browser that still holds it moves to 14:00 once.
+try { if (localStorage.getItem('entryCutoffV') !== '2') { if (localStorage.getItem('entryCutoff') === '10:30') localStorage.removeItem('entryCutoff'); localStorage.setItem('entryCutoffV', '2'); } } catch { /* storage blocked: defaults apply */ }
+let entryCutoff = readSetting('entryCutoff', '14:00', v => /^(0?9|1[0-4]):[0-5]\d$/.test(v));
 const saveSetting = (k, v) => { try { localStorage.setItem(k, String(v)); } catch { /* private mode: setting lasts this tab */ } };
 let leverage = Number(localStorage.getItem('leverage')) || 1;
 

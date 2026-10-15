@@ -1,6 +1,6 @@
 /**
  * Intraday backtester — replays the live intraday formula over 5-minute history,
- * the way a morning-only trader would take it.
+ * the way a trader who enters only until their cutoff (14:00 by default) would take it.
  *
  * It calls the board's own computeIndicators / buildUniverseContext / scoreStock
  * / intradayPlan, so it measures the formula actually shipped. At each 5-minute

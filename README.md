@@ -112,7 +112,7 @@ comparable scales.
 ### 5. Entry window
 
 New intraday trades are offered from **09:30** (once the opening range has formed) until the trader's cutoff,
-**10:30 by default** and capped at 14:45. The cutoff is set per browser and passed as `entryCutoff`. Outside
+**14:00 by default** and capped at 14:45. The cutoff is set per browser and passed as `entryCutoff`. Outside
 the window, or on a weekend or configured holiday, the board still shows setups but greys them out and gives
 no order ticket.
 
@@ -144,7 +144,7 @@ instrument master (₹0.05 offline, with a note):
 ### 8. Intraday backtester
 
 `server/services/intradayBacktest.js` replays the formula on real Kite **5-minute** history (20–100 days; Kite
-serves at most 100 days per request), the way a morning-only trader would take it:
+serves at most 100 days per request), the way a trader entering only until their cutoff would take it:
 
 - At each candle close from 09:30 to the cutoff it sees only that day's candles so far plus daily history up
   to the previous session.
@@ -363,9 +363,9 @@ npm test
 - `GET /api/insights/picks` - Picks only
 - `GET /api/insights/swing` - Swing picks, watchlist and the full scored universe (daily candles)
 - `GET /api/insights/swing/backtest?days=1095` - Replay the swing formula on Kite history (400–1900 days; requires Kite)
-- `GET /api/insights/intraday/backtest?days=60&entryCutoff=10:30&maxTrades=2` - Replay the intraday formula on
+- `GET /api/insights/intraday/backtest?days=60&entryCutoff=14:00&maxTrades=2` - Replay the intraday formula on
   Kite 5-minute history (20–100 days; requires Kite)
-- `GET /api/insights?entryCutoff=10:30` - the intraday snapshot carries `entryWindow` (`BEFORE` / `OPEN` /
+- `GET /api/insights?entryCutoff=14:00` - the intraday snapshot carries `entryWindow` (`BEFORE` / `OPEN` /
   `CLOSED` / `MARKET_CLOSED`)
 - `GET /api/insights/source` - Whether data is live from Kite or simulated
 - Query: `limit` (max picks, 1–50), `pinned` (comma-separated symbols kept on the board regardless of score)
